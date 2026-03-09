@@ -17,7 +17,7 @@ CONFLUENCE_USER = "psh1576@gmail.com"
 # 아래 코드로 변경하여 보안을 지키세요.
 CONFLUENCE_API_TOKEN = st.secrets.get("CONFLUENCE_API_TOKEN", "기본값") 
 
-st.set_page_config(page_title="Logi AI 재무/운영 통합 시스템", layout="wide")
+st.set_page_config(page_title="Lit.AI 재무/운영 통합 시스템", layout="wide")
 # ==========================================
 # 1. 사이드바: 고정비 및 단가 동적 입력
 # ==========================================
@@ -40,7 +40,7 @@ target_margin = st.sidebar.slider("목표 매출이익률 (%)", 1, 20, 10)
 # 2. 분석 로직 함수
 # ==========================================
 def get_logi_ai_analysis(summary):
-    prompt = f"물류 전문 재무 분석가 '로지 AI'로서 다음 데이터를 정밀 분석하고 개선 제언을 해줘: {summary}"
+    prompt = f"물류 전문 재무 분석가 'Lit.AI'로서 다음 데이터를 정밀 분석하고 개선 제언을 해줘: {summary}"
     try:
         response = openai.chat.completions.create(
             model="gpt-4o-mini",
@@ -54,7 +54,7 @@ def get_logi_ai_analysis(summary):
 # ==========================================
 # 3. 메인 화면 구성
 # ==========================================
-st.title("🚀 Logi AI 재무/운영 통합 가마감 대시보드")
+st.title("🚀 Lit.AI 재무/운영 통합 가마감 대시보드")
 st.markdown("매출, 매출원가, **매출이익**을 실시간으로 분석하여 가마감을 수행합니다.")
 
 uploaded_files = st.file_uploader("5일치 보고서(CSV) 업로드", type=['csv'], accept_multiple_files=True)
@@ -133,12 +133,12 @@ if uploaded_files:
     # 5. 로지 AI 분석 및 엑셀 리포트
     # ==========================================
     st.markdown("---")
-    if st.button("🤖 로지 AI 심층 재무 분석 및 엑셀 다운로드"):
-        with st.spinner('로지 AI 분석 중...'):
+    if st.button("🤖 Lit.AI 심층 재무 분석 및 엑셀 다운로드"):
+        with st.spinner('Lit.AI 분석 중...'):
             summary = f"매출:{total_revenue}, 원가:{total_cost}, 이익:{total_profit}, 이익률:{margin_rate:.1f}%"
             report = get_logi_ai_analysis(summary)
             
-            st.info("### 🤖 로지 AI 가마감 리포트")
+            st.info("### 🤖 Lit.AI 가마감 리포트")
             st.write(report)
 
             output = BytesIO()
@@ -151,7 +151,7 @@ if uploaded_files:
                 # 시트 2: 일자별 통계
                 daily_stats.to_excel(writer, index=False, sheet_name='Daily_Stats')
                 # 시트 3: AI 분석
-                pd.DataFrame({"로지 AI 제언": [report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
+                pd.DataFrame({"Lit.AI 제언": [report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
             
             st.download_button(
                 label="💾 최종 가마감 엑셀 파일 다운로드",
