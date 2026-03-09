@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -8,17 +7,17 @@ from io import BytesIO
 import datetime
 import numpy as np
 
-# [설정] API 키 및 기본 정보
-OPENAI_API_KEY = "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" 
+# [1. 보안 설정] 모든 비밀 키는 스트림릿 Secrets에서 가져옵니다.
+# 깃허브 코드에는 절대 실제 키를 적지 마세요!
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# 컨플루언스 정보 (사용하지 않을 경우 기본값 유지)
+# 컨플루언스 정보도 Secrets로 관리하는 것이 정석입니다.
 CONFLUENCE_URL = "https://psh1576.atlassian.net"
 CONFLUENCE_USER = "psh1576@gmail.com"
-CONFLUENCE_API_TOKEN = "ATATT3xFfGF0hlnATdHaJs6jlz2_nUK8pWYwqx35Oe5rKFSjTRaaug5S-se-tqnjHzZr2HvGbgnaLP21X7tP3DbEaK4cuoG2jcLtL0wh0lG4pkHaXVVQaciOkbRearbAZGkHQ9FrW-qw-sQhAYS4znRCJ30T_ilWFMA9H1k9oRUDWfzWG98dmco=EC87B68D" 
+# 아래 코드로 변경하여 보안을 지키세요.
+CONFLUENCE_API_TOKEN = st.secrets.get("CONFLUENCE_API_TOKEN", "기본값") 
 
-openai.api_key = OPENAI_API_KEY
 st.set_page_config(page_title="Logi AI 재무/운영 통합 시스템", layout="wide")
-
 # ==========================================
 # 1. 사이드바: 고정비 및 단가 동적 입력
 # ==========================================
