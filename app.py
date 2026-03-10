@@ -13,13 +13,14 @@ import re
 # ==========================================
 # 1. 보안 및 환경 설정
 # ==========================================
+# st.set_page_config는 반드시 Streamlit 명령 중 가장 먼저 실행되어야 합니다.
+st.set_page_config(page_title="Lit.AI 재무/운영 통합 시스템", layout="wide")
+
 openai.api_key = st.secrets.get("OPENAI_API_KEY", "your-key-here")
 
 CONFLUENCE_URL = "https://psh1576.atlassian.net"
 CONFLUENCE_USER = "psh1576@gmail.com"
 CONFLUENCE_API_TOKEN = st.secrets.get("CONFLUENCE_API_TOKEN", "기본값")
-
-st.set_page_config(page_title="Lit.AI 재무/운영 통합 시스템", layout="wide")
 
 # 테마 강제 고정 (White) 및 UI 스타일링
 st.markdown("""
