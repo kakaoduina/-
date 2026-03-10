@@ -4,3 +4,4 @@ plotly
 openai
 xlsxwriter
 atlassian-python-api
+numpy
