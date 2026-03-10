@@ -86,7 +86,7 @@ def get_ai_schema_mapping(columns, sample_data):
                 "Truck_Count": "Truck_Count", "Quantity": "Quantity", "SKU": "SKU"}
 
 # ==========================================
-# 4. 메인 화면 구성
+# 4. 메인 화면 구성 및 데이터 전처리
 # ==========================================
 st.title("🚀 Lit.AI 재무/운영 통합 가마감 대시보드")
 
@@ -118,47 +118,91 @@ if uploaded_files:
             st.session_state.column_mapping = mapped_cols
             st.success("매핑이 확정되었습니다!")
 
-    # 데이터셋 구성 (매핑된 데이터 + 추가 심층 분석용 컬럼)
+    # 데이터셋 구성 (매핑된 데이터)
     df = pd.DataFrame()
     for std_col, orig_col in st.session_state.column_mapping.items():
-        if orig_col in raw_df.columns:
-            df[std_col] = raw_df[orig_col]
-        else:
-            df[std_col] = 0
+        df[std_col] = raw_df[orig_col] if orig_col in raw_df.columns else 0
             
-    # 신규 데이터셋의 추가 컬럼들을 안전하게 df로 병합
-    extra_cols = ['Quantity_Box', 'Worker_Regular', 'Worker_Temp', 'Truck_Contract', 'Truck_Temp', 
-                  'Inbound_Planned', 'Inbound_Actual', 'Outbound_Planned', 'Outbound_Actual']
-    for c in extra_cols:
-        df[c] = raw_df[c] if c in raw_df.columns else 0
+    # [수정포인트 1] 업로드된 CSV의 실제 컬럼명(_PCS)을 내부 변수에 정확히 매핑하여 0으로 나오던 버그 수정
+    extra_cols_mapping = {
+        'Quantity_Box': 'Quantity_Box',
+        'Worker_Regular': 'Worker_Regular',
+        'Worker_Temp': 'Worker_Temp',
+        'Truck_Contract': 'Truck_Contract',
+        'Truck_Temp': 'Truck_Temp',
+        'Inbound_Planned_PCS': 'Inbound_Planned',
+        'Inbound_Actual_PCS': 'Inbound_Actual',
+        'Outbound_Planned_PCS': 'Outbound_Planned',
+        'Outbound_Actual_PCS': 'Outbound_Actual'
+    }
+    
+    for csv_col, std_col in extra_cols_mapping.items():
+        df[std_col] = raw_df[csv_col] if csv_col in raw_df.columns else 0
 
     df['Date'] = pd.to_datetime(df['Date'])
     
-    # ==========================================
-    # 🌟 8가지 핵심 운영 지표 대시보드 (5일 기준 전주 비교)
-    # ==========================================
+    # [수정포인트 2] 일별(Daily) / 주별(Weekly) 선택 기능 추가
     st.markdown("---")
-    st.subheader("🎯 핵심 운영 지표 (Daily Operation KPI)")
+    view_mode = st.radio("📅 **데이터 조회 단위 선택**", ["일별 (Daily)", "주별 (Weekly)"], horizontal=True)
     
-    daily_summary = df.groupby('Date').agg(
+    # 1차적으로 '일별' 기준으로 중복 제거 및 집계 (원천 데이터가 Order 단위이므로 Worker 등은 일별 1건만 취합해야 함)
+    daily_base = df.groupby('Date').agg(
         Total_Qty=('Quantity', 'sum'),
+        Total_Box=('Quantity_Box', 'sum'),
         Total_Rev=('Revenue', 'sum'),
         Workers=('Worker_Count', 'first'),
         Trucks=('Truck_Count', 'first'),
-        Unique_SKU=('SKU', 'nunique')
-    ).reset_index().sort_values('Date')
+        Unique_SKU=('SKU', 'nunique'),
+        In_P=('Inbound_Planned', 'first'),
+        In_A=('Inbound_Actual', 'first'),
+        Out_P=('Outbound_Planned', 'first'),
+        Out_A=('Outbound_Actual', 'first'),
+        Worker_Reg=('Worker_Regular', 'first'),
+        Worker_Tmp=('Worker_Temp', 'first'),
+        Truck_Con=('Truck_Contract', 'first'),
+        Truck_Tmp=('Truck_Temp', 'first')
+    ).reset_index()
+
+    # 선택된 모드에 따라 최종 데이터프레임(agg_df) 생성
+    if view_mode == "주별 (Weekly)":
+        # 월요일 기준 주차 시작일로 변환
+        daily_base['Period'] = daily_base['Date'].dt.to_period('W-MON').dt.start_time
+        agg_df = daily_base.groupby('Period').agg(
+            Total_Qty=('Total_Qty', 'sum'),
+            Total_Box=('Total_Box', 'sum'),
+            Total_Rev=('Total_Rev', 'sum'),
+            Workers=('Workers', 'sum'),       # 주간 총 투입 인력
+            Trucks=('Trucks', 'sum'),         # 주간 총 투입 차량
+            Unique_SKU=('Unique_SKU', 'max'), # 주간 운영 SKU (최대치 기준)
+            In_P=('In_P', 'sum'),
+            In_A=('In_A', 'sum'),
+            Out_P=('Out_P', 'sum'),
+            Out_A=('Out_A', 'sum'),
+            Worker_Reg=('Worker_Reg', 'sum'),
+            Worker_Tmp=('Worker_Tmp', 'sum'),
+            Truck_Con=('Truck_Con', 'sum'),
+            Truck_Tmp=('Truck_Tmp', 'sum')
+        ).reset_index()
+        period_label = "주(Week)"
+    else:
+        daily_base['Period'] = daily_base['Date']
+        agg_df = daily_base.copy()
+        period_label = "일(Day)"
+
+    agg_df = agg_df.sort_values('Period')
+
+    # ==========================================
+    # 🌟 8가지 핵심 운영 지표 대시보드
+    # ==========================================
+    st.subheader(f"🎯 핵심 운영 지표 ({view_mode})")
     
-    if not daily_summary.empty:
-        latest_date = daily_summary['Date'].max()
-        curr_day = daily_summary[daily_summary['Date'] == latest_date].iloc[0]
+    if not agg_df.empty:
+        latest_period = agg_df['Period'].max()
+        curr_data = agg_df[agg_df['Period'] == latest_period].iloc[0]
         
-        prev_date = latest_date - pd.Timedelta(days=1)
-        prev_day = daily_summary[daily_summary['Date'] == prev_date]
-        prev_day = prev_day.iloc[0] if not prev_day.empty else None
-        
-        last_week_date = latest_date - pd.Timedelta(days=5) 
-        last_week_day = daily_summary[daily_summary['Date'] == last_week_date]
-        last_week_day = last_week_day.iloc[0] if not last_week_day.empty else None
+        # 전주기(전일 또는 전주) 데이터 추출
+        prev_data_df = agg_df[agg_df['Period'] < latest_period]
+        prev_data = prev_data_df.iloc[-1] if not prev_data_df.empty else None
 
         def calc_metrics(row):
             if row is None: return {k: 0 for k in ['qty', 'hr', 'uph', 'inbound', 'trucks', 'sku', 'workers', 'efficiency']}
@@ -169,46 +213,48 @@ if uploaded_files:
             uph = qty / hr if hr > 0 else 0
             efficiency = qty / trucks if trucks > 0 else 0
             return {
-                'qty': qty, 'hr': hr, 'uph': uph, 'inbound': qty, 
+                'qty': qty, 'hr': hr, 'uph': uph, 'inbound': row['In_A'], 
                 'trucks': trucks, 'sku': row['Unique_SKU'], 'workers': workers, 'efficiency': efficiency
             }
 
-        curr = calc_metrics(curr_day)
-        prev = calc_metrics(prev_day)
-        wow = calc_metrics(last_week_day)
+        curr = calc_metrics(curr_data)
+        prev = calc_metrics(prev_data)
 
         def get_delta(curr_val, compare_val):
             if compare_val == 0: return "N/A"
             return f"{((curr_val - compare_val) / compare_val) * 100:.1f}%"
 
-        st.markdown(f"**기준일:** {latest_date.strftime('%Y-%m-%d')}  |  *(※ 전주 대비는 영업일 5일 기준)*")
+        date_str = latest_period.strftime('%Y-%m-%d')
+        if view_mode == "주별 (Weekly)":
+            date_str += " (해당 주차 시작일)"
+            
+        st.markdown(f"**최근 기준일:** {date_str}")
         
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("📦 물동량(PCS)", f"{curr['qty']:,.0f}", f"전일: {get_delta(curr['qty'], prev['qty'])} | 전주: {get_delta(curr['qty'], wow['qty'])}")
-        m2.metric("⏱️ 작업 시간(HR)", f"{curr['hr']:,.0f}", f"전일: {get_delta(curr['hr'], prev['hr'])} | 전주: {get_delta(curr['hr'], wow['hr'])}")
-        m3.metric("📈 생산성(UPH)", f"{curr['uph']:.1f}", f"전일: {get_delta(curr['uph'], prev['uph'])} | 전주: {get_delta(curr['uph'], wow['uph'])}")
-        m4.metric("📥 입고처리(PCS)", f"{curr['inbound']:,.0f}", f"전일: {get_delta(curr['inbound'], prev['inbound'])} | 전주: {get_delta(curr['inbound'], wow['inbound'])}")
+        m1.metric("📦 물동량(PCS)", f"{curr['qty']:,.0f}", f"이전 기간 대비: {get_delta(curr['qty'], prev['qty'])}")
+        m2.metric("⏱️ 총 작업시간(HR)", f"{curr['hr']:,.0f}", f"이전 기간 대비: {get_delta(curr['hr'], prev['hr'])}")
+        m3.metric("📈 생산성(UPH)", f"{curr['uph']:.1f}", f"이전 기간 대비: {get_delta(curr['uph'], prev['uph'])}")
+        m4.metric("📥 입고처리(PCS)", f"{curr['inbound']:,.0f}", f"이전 기간 대비: {get_delta(curr['inbound'], prev['inbound'])}")
         
         st.write("")
         
         m5, m6, m7, m8 = st.columns(4)
-        m5.metric("🚚 차량수(대)", f"{curr['trucks']:,.0f}", f"전일: {get_delta(curr['trucks'], prev['trucks'])} | 전주: {get_delta(curr['trucks'], wow['trucks'])}")
-        m6.metric("🏷️ 운영 SKU", f"{curr['sku']:,.0f}", f"전일: {get_delta(curr['sku'], prev['sku'])} | 전주: {get_delta(curr['sku'], wow['sku'])}")
-        m7.metric("👷 투입자원(명)", f"{curr['workers']:,.0f}", f"전일: {get_delta(curr['workers'], prev['workers'])} | 전주: {get_delta(curr['workers'], wow['workers'])}")
-        m8.metric("🏢 창고 효율(차량당 PCS)", f"{curr['efficiency']:.1f}", f"전일: {get_delta(curr['efficiency'], prev['efficiency'])} | 전주: {get_delta(curr['efficiency'], wow['efficiency'])}")
+        m5.metric("🚚 차량수(대)", f"{curr['trucks']:,.0f}", f"이전 기간 대비: {get_delta(curr['trucks'], prev['trucks'])}")
+        m6.metric("🏷️ 운영 SKU", f"{curr['sku']:,.0f}", f"이전 기간 대비: {get_delta(curr['sku'], prev['sku'])}")
+        m7.metric("👷 투입자원(명)", f"{curr['workers']:,.0f}", f"이전 기간 대비: {get_delta(curr['workers'], prev['workers'])}")
+        m8.metric("🏢 창고 효율(차량당 PCS)", f"{curr['efficiency']:.1f}", f"이전 기간 대비: {get_delta(curr['efficiency'], prev['efficiency'])}")
 
     # ==========================================
-    # 5. 기존 재무 현황 & 그래프
+    # 5. 재무 현황 & 그래프
     # ==========================================
     st.markdown("---")
-    st.markdown("### 💰 기간 누적 재무 현황 (Financial Summary)")
+    st.markdown(f"### 💰 누적 재무 현황 (전체 {period_label} 기준합산)")
     
     total_revenue = df['Revenue'].sum()
-    num_days = df['Date'].nunique()
+    num_days = df['Date'].nunique() # 고정비는 실제 영업일(Daily) 기준으로 부과
     
-    daily_stats = df.groupby('Date').agg({'Worker_Count': 'first', 'Truck_Count': 'first'}).reset_index()
-    total_handling_cost = daily_stats['Worker_Count'].sum() * 8 * labor_rate
-    total_delivery_cost = daily_stats['Truck_Count'].sum() * truck_rate
+    total_handling_cost = daily_base['Workers'].sum() * 8 * labor_rate
+    total_delivery_cost = daily_base['Trucks'].sum() * truck_rate
     total_fixed_cost = (daily_rent + daily_deprec + daily_indirect) * num_days
     
     total_cost = total_handling_cost + total_delivery_cost + total_fixed_cost
@@ -229,75 +275,78 @@ if uploaded_files:
         st.plotly_chart(px.pie(values=c_vals, names=c_labels, hole=0.4), use_container_width=True)
 
     with col2:
-        st.subheader("📉 일별 매출 vs 매출원가 추이")
-        daily_rev = df.groupby('Date')['Revenue'].sum().reset_index()
-        daily_stats['Daily_Cost'] = (daily_stats['Worker_Count']*8*labor_rate) + (daily_stats['Truck_Count']*truck_rate) + (daily_rent + daily_deprec + daily_indirect)
+        st.subheader(f"📉 {view_mode} 매출 vs 매출원가 추이")
+        # 해당 주기에 맞춘 코스트 계산
+        agg_df['Cost'] = (agg_df['Workers']*8*labor_rate) + (agg_df['Trucks']*truck_rate)
+        # 고정비 배분 로직 (일별이면 1일치, 주별이면 해당 주차의 포함된 영업일만큼)
+        if view_mode == "주별 (Weekly)":
+            days_in_week_series = daily_base.groupby('Period').size().values
+            agg_df['Fixed_Cost'] = days_in_week_series * (daily_rent + daily_deprec + daily_indirect)
+        else:
+            agg_df['Fixed_Cost'] = daily_rent + daily_deprec + daily_indirect
+        
+        agg_df['Total_Period_Cost'] = agg_df['Cost'] + agg_df['Fixed_Cost']
+
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=daily_rev['Date'], y=daily_rev['Revenue'], name="매출"))
-        fig.add_trace(go.Scatter(x=daily_stats['Date'], y=daily_stats['Daily_Cost'], name="매출원가", line=dict(color='red', width=4)))
+        fig.add_trace(go.Bar(x=agg_df['Period'], y=agg_df['Total_Rev'], name="매출"))
+        fig.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['Total_Period_Cost'], name="매출원가", line=dict(color='red', width=4)))
         st.plotly_chart(fig, use_container_width=True)
 
     # ==========================================
-    # 🌟 NEW 6. 현장 운영 심층 분석 (Operations Deep-Dive) 🌟
+    # 6. 현장 운영 심층 분석 (Operations Deep-Dive)
     # ==========================================
     st.markdown("---")
     st.markdown("### 📈 현장 운영 심층 분석 (Operations Deep-Dive)")
     
-    # 일별 추세 데이터 집계
-    trend_df = df.groupby('Date').agg(
-        Qty_PCS=('Quantity', 'sum'), Qty_Box=('Quantity_Box', 'sum'),
-        Workers=('Worker_Count', 'first'), Trucks=('Truck_Count', 'first'),
-        In_P=('Inbound_Planned', 'first'), In_A=('Inbound_Actual', 'first'),
-        Out_P=('Outbound_Planned', 'first'), Out_A=('Outbound_Actual', 'first')
-    ).reset_index()
-    trend_df['UPH'] = trend_df['Qty_PCS'] / (trend_df['Workers'] * 8)
-    trend_df['Target_UPH'] = 15.0 # 임의의 기준생산성
+    agg_df['UPH'] = agg_df['Total_Qty'] / (agg_df['Workers'] * 8)
+    agg_df['Target_UPH'] = 15.0
 
     # [1] 4대 추세선 그래프
-    st.subheader("📌 1. 주요 지표 일별 추세선")
+    st.subheader(f"📌 1. 주요 지표 {view_mode} 추세선")
     t1, t2 = st.columns(2)
     with t1:
         fig1 = go.Figure()
-        fig1.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Qty_PCS'], mode='lines+markers', name="물동량(PCS)"))
-        fig1.update_layout(title="일별 물동량 추세")
+        fig1.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['Total_Qty'], mode='lines+markers', name="물동량(PCS)"))
+        fig1.update_layout(title=f"{period_label} 물동량 추세")
         st.plotly_chart(fig1, use_container_width=True)
         
         fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Workers'], mode='lines+markers', name="인력(명)", line=dict(color='orange')))
+        fig2.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['Workers'], mode='lines+markers', name="인력(명)", line=dict(color='orange')))
         fig2.update_layout(title="인력 투입 추세")
         st.plotly_chart(fig2, use_container_width=True)
 
     with t2:
         fig3 = go.Figure()
-        fig3.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['UPH'], mode='lines+markers', name="생산성(UPH)", line=dict(color='green')))
+        fig3.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['UPH'], mode='lines+markers', name="생산성(UPH)", line=dict(color='green')))
         fig3.update_layout(title="하역 생산성 추세")
         st.plotly_chart(fig3, use_container_width=True)
 
         fig4 = go.Figure()
-        fig4.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Trucks'], mode='lines+markers', name="차량(대)", line=dict(color='red')))
+        fig4.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['Trucks'], mode='lines+markers', name="차량(대)", line=dict(color='red')))
         fig4.update_layout(title="차량 운행 추세")
         st.plotly_chart(fig4, use_container_width=True)
 
     # [2] 입출고 현황 (단위: 만 PCS)
+    # 데이터 매핑 수정으로 이제 그래프에 실적/예정이 올바르게 나타납니다!
     st.subheader("📌 2. 입/출고 현황 (단위: 만 PCS)")
-    in_out_df = trend_df[['Date', 'In_P', 'In_A', 'Out_P', 'Out_A']].copy()
+    in_out_df = agg_df[['Period', 'In_P', 'In_A', 'Out_P', 'Out_A']].copy()
     for c in ['In_P', 'In_A', 'Out_P', 'Out_A']:
         in_out_df[c] = in_out_df[c] / 10000 
     
     io1, io2 = st.columns(2)
     with io1:
-        fig_in = px.bar(in_out_df, x='Date', y=['In_P', 'In_A'], barmode='group', title="입고 현황 (예정 vs 실적)")
+        fig_in = px.bar(in_out_df, x='Period', y=['In_P', 'In_A'], barmode='group', title="입고 현황 (예정 vs 실적)")
         st.plotly_chart(fig_in, use_container_width=True)
     with io2:
-        fig_out = px.bar(in_out_df, x='Date', y=['Out_P', 'Out_A'], barmode='group', title="출고 현황 (예정 vs 실적)")
+        fig_out = px.bar(in_out_df, x='Period', y=['Out_P', 'Out_A'], barmode='group', title="출고 현황 (예정 vs 실적)")
         st.plotly_chart(fig_out, use_container_width=True)
 
-    # [3] Daily 생산성 이중 Y축 그래프
-    st.subheader("📌 3. Daily 생산성 분석")
+    # [3] 생산성 이중 Y축 그래프
+    st.subheader(f"📌 3. {period_label} 생산성 분석")
     fig_prod = go.Figure()
-    fig_prod.add_trace(go.Bar(x=trend_df['Date'], y=trend_df['Qty_Box'], name="물량(Box)", yaxis='y1', opacity=0.6))
-    fig_prod.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['UPH'], name="생산성(인/시)", yaxis='y2', mode='lines+markers', line=dict(color='red', width=3)))
-    fig_prod.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Target_UPH'], name="기준생산성(인/시)", yaxis='y2', mode='lines', line=dict(color='gray', dash='dash')))
+    fig_prod.add_trace(go.Bar(x=agg_df['Period'], y=agg_df['Total_Box'], name="물량(Box)", yaxis='y1', opacity=0.6))
+    fig_prod.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['UPH'], name="생산성(인/시)", yaxis='y2', mode='lines+markers', line=dict(color='red', width=3)))
+    fig_prod.add_trace(go.Scatter(x=agg_df['Period'], y=agg_df['Target_UPH'], name="기준생산성(인/시)", yaxis='y2', mode='lines', line=dict(color='gray', dash='dash')))
     fig_prod.update_layout(
         yaxis=dict(title="물량 (Box)"),
         yaxis2=dict(title="생산성 (UPH)", overlaying='y', side='right'),
@@ -305,41 +354,43 @@ if uploaded_files:
     )
     st.plotly_chart(fig_prod, use_container_width=True)
 
-    # [4] 표 데이터 (자원 현황 & 일일 실적)
+    # [4] 표 데이터 (자원 현황 & 일일 실적 수정)
+    # [수정포인트 3] 일일/주간 운영 실적 표 재구성 (데이터 누락 수정 및 직관성 향상)
     st.markdown("---")
     colA, colB = st.columns(2)
     with colA:
-        st.subheader("📋 운영 자원 현황")
-        latest_res = df[df['Date'] == latest_date].iloc[0]
-        prev_res = df[df['Date'] == (latest_date - pd.Timedelta(days=1))].iloc[0] if len(df['Date'].unique()) > 1 else latest_res
+        st.subheader(f"📋 운영 자원 현황 ({period_label} 기준)")
+        curr_res = agg_df[agg_df['Period'] == latest_period].iloc[0]
+        prev_res = prev_data if prev_data is not None else curr_res
         
         resource_data = {
             "구분": ["하역 (정규)", "하역 (임시)", "수배송 (지입)", "수배송 (임시)"],
-            "전일": [prev_res['Worker_Regular'], prev_res['Worker_Temp'], prev_res['Truck_Contract'], prev_res['Truck_Temp']],
-            "당일": [latest_res['Worker_Regular'], latest_res['Worker_Temp'], latest_res['Truck_Contract'], latest_res['Truck_Temp']]
+            "이전 기간": [prev_res['Worker_Reg'], prev_res['Worker_Tmp'], prev_res['Truck_Con'], prev_res['Truck_Tmp']],
+            "최근 기간": [curr_res['Worker_Reg'], curr_res['Worker_Tmp'], curr_res['Truck_Con'], curr_res['Truck_Tmp']]
         }
         res_df = pd.DataFrame(resource_data)
-        res_df['GAP'] = res_df['당일'] - res_df['전일']
+        res_df['증감율'] = res_df.apply(lambda r: f"{(r['최근 기간'] - r['이전 기간'])/(r['이전 기간'] if r['이전 기간']>0 else 1)*100:.1f}%", axis=1)
         st.dataframe(res_df, use_container_width=True, hide_index=True)
 
     with colB:
-        st.subheader("📊 일일 운영 실적 (Box/SKU/PCS)")
-        curr_trend = trend_df[trend_df['Date'] == latest_date].iloc[0]
-        sku_count = df[df['Date'] == latest_date]['SKU'].nunique()
+        st.subheader(f"📊 {view_mode} 입출고 실적 요약")
+        curr_trend = agg_df[agg_df['Period'] == latest_period].iloc[0]
+        
+        # 달성률 방어 로직
+        in_achieve = f"{(curr_trend['In_A'] / curr_trend['In_P'] * 100):.1f}%" if curr_trend['In_P'] > 0 else "0.0%"
+        out_achieve = f"{(curr_trend['Out_A'] / curr_trend['Out_P'] * 100):.1f}%" if curr_trend['Out_P'] > 0 else "0.0%"
         
         perf_data = {
-            "단위": ["PCS", "Box", "SKU"],
-            "입고 (예정)": [curr_trend['In_P'], curr_trend['In_P']//5, sku_count],
-            "입고 (작업량)": [curr_trend['In_A'], curr_trend['In_A']//5, sku_count],
-            "입고 (미입)": [curr_trend['In_P'] - curr_trend['In_A'], (curr_trend['In_P'] - curr_trend['In_A'])//5, 0],
-            "출고 (예정)": [curr_trend['Out_P'], curr_trend['Out_P']//5, sku_count],
-            "출고 (작업량)": [curr_trend['Out_A'], curr_trend['Out_A']//5, sku_count],
-            "출고 (잔량)": [curr_trend['Out_P'] - curr_trend['Out_A'], (curr_trend['Out_P'] - curr_trend['Out_A'])//5, 0],
+            "구분": ["입고 (Inbound)", "출고 (Outbound)"],
+            "예정 수량 (PCS)": [f"{curr_trend['In_P']:,.0f}", f"{curr_trend['Out_P']:,.0f}"],
+            "작업 실적 (PCS)": [f"{curr_trend['In_A']:,.0f}", f"{curr_trend['Out_A']:,.0f}"],
+            "잔량/미입 (PCS)": [f"{(curr_trend['In_P'] - curr_trend['In_A']):,.0f}", f"{(curr_trend['Out_P'] - curr_trend['Out_A']):,.0f}"],
+            "작업 달성률 (%)": [in_achieve, out_achieve]
         }
         st.dataframe(pd.DataFrame(perf_data), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 7. AI 심층 리포트 및 외부 연동 (원본 그대로 유지!)
+    # 7. AI 심층 리포트 및 외부 연동
     # ==========================================
     st.markdown("---")
     if st.button("🤖 Lit.AI 심층 재무 분석 및 리포트 생성"):
@@ -362,14 +413,15 @@ if uploaded_files:
         edited_report = st.text_area("리포트 내용 편집기", value=st.session_state.ai_report, height=350, label_visibility="collapsed")
         st.session_state.ai_report = edited_report
 
-        # 엑셀 파일 생성
+        # 엑셀 파일 생성 (정상적으로 매핑된 원본 데이터 시트 포함!)
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             pd.DataFrame({
                 "항목": ["총 매출", "총 매출원가", "매출이익", "매출이익률", "하역비", "배송비", "고정비 총액"],
                 "수치": [total_revenue, total_cost, total_profit, f"{margin_rate:.2f}%", total_handling_cost, total_delivery_cost, total_fixed_cost]
             }).to_excel(writer, index=False, sheet_name='Financial_Summary')
-            daily_stats.to_excel(writer, index=False, sheet_name='Daily_Stats')
+            agg_df.to_excel(writer, index=False, sheet_name='Period_Stats')
+            df.to_excel(writer, index=False, sheet_name='Raw_Data_Corrected') # 복구된 원천 데이터 첨부
             pd.DataFrame({"Lit.AI 제언": [st.session_state.ai_report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
         
         # 다운로드 버튼
