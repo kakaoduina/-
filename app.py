@@ -118,12 +118,19 @@ if uploaded_files:
             st.session_state.column_mapping = mapped_cols
             st.success("매핑이 확정되었습니다!")
 
+    # 데이터셋 구성 (매핑된 데이터 + 추가 심층 분석용 컬럼)
     df = pd.DataFrame()
     for std_col, orig_col in st.session_state.column_mapping.items():
         if orig_col in raw_df.columns:
             df[std_col] = raw_df[orig_col]
         else:
             df[std_col] = 0
+            
+    # 신규 데이터셋의 추가 컬럼들을 안전하게 df로 병합
+    extra_cols = ['Quantity_Box', 'Worker_Regular', 'Worker_Temp', 'Truck_Contract', 'Truck_Temp', 
+                  'Inbound_Planned', 'Inbound_Actual', 'Outbound_Planned', 'Outbound_Actual']
+    for c in extra_cols:
+        df[c] = raw_df[c] if c in raw_df.columns else 0
 
     df['Date'] = pd.to_datetime(df['Date'])
     
@@ -231,7 +238,108 @@ if uploaded_files:
         st.plotly_chart(fig, use_container_width=True)
 
     # ==========================================
-    # 6. AI 심층 리포트 및 외부 연동 (복구 완료)
+    # 🌟 NEW 6. 현장 운영 심층 분석 (Operations Deep-Dive) 🌟
+    # ==========================================
+    st.markdown("---")
+    st.markdown("### 📈 현장 운영 심층 분석 (Operations Deep-Dive)")
+    
+    # 일별 추세 데이터 집계
+    trend_df = df.groupby('Date').agg(
+        Qty_PCS=('Quantity', 'sum'), Qty_Box=('Quantity_Box', 'sum'),
+        Workers=('Worker_Count', 'first'), Trucks=('Truck_Count', 'first'),
+        In_P=('Inbound_Planned', 'first'), In_A=('Inbound_Actual', 'first'),
+        Out_P=('Outbound_Planned', 'first'), Out_A=('Outbound_Actual', 'first')
+    ).reset_index()
+    trend_df['UPH'] = trend_df['Qty_PCS'] / (trend_df['Workers'] * 8)
+    trend_df['Target_UPH'] = 15.0 # 임의의 기준생산성
+
+    # [1] 4대 추세선 그래프
+    st.subheader("📌 1. 주요 지표 일별 추세선")
+    t1, t2 = st.columns(2)
+    with t1:
+        fig1 = go.Figure()
+        fig1.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Qty_PCS'], mode='lines+markers', name="물동량(PCS)"))
+        fig1.update_layout(title="일별 물동량 추세")
+        st.plotly_chart(fig1, use_container_width=True)
+        
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Workers'], mode='lines+markers', name="인력(명)", line=dict(color='orange')))
+        fig2.update_layout(title="인력 투입 추세")
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with t2:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['UPH'], mode='lines+markers', name="생산성(UPH)", line=dict(color='green')))
+        fig3.update_layout(title="하역 생산성 추세")
+        st.plotly_chart(fig3, use_container_width=True)
+
+        fig4 = go.Figure()
+        fig4.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Trucks'], mode='lines+markers', name="차량(대)", line=dict(color='red')))
+        fig4.update_layout(title="차량 운행 추세")
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # [2] 입출고 현황 (단위: 만 PCS)
+    st.subheader("📌 2. 입/출고 현황 (단위: 만 PCS)")
+    in_out_df = trend_df[['Date', 'In_P', 'In_A', 'Out_P', 'Out_A']].copy()
+    for c in ['In_P', 'In_A', 'Out_P', 'Out_A']:
+        in_out_df[c] = in_out_df[c] / 10000 
+    
+    io1, io2 = st.columns(2)
+    with io1:
+        fig_in = px.bar(in_out_df, x='Date', y=['In_P', 'In_A'], barmode='group', title="입고 현황 (예정 vs 실적)")
+        st.plotly_chart(fig_in, use_container_width=True)
+    with io2:
+        fig_out = px.bar(in_out_df, x='Date', y=['Out_P', 'Out_A'], barmode='group', title="출고 현황 (예정 vs 실적)")
+        st.plotly_chart(fig_out, use_container_width=True)
+
+    # [3] Daily 생산성 이중 Y축 그래프
+    st.subheader("📌 3. Daily 생산성 분석")
+    fig_prod = go.Figure()
+    fig_prod.add_trace(go.Bar(x=trend_df['Date'], y=trend_df['Qty_Box'], name="물량(Box)", yaxis='y1', opacity=0.6))
+    fig_prod.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['UPH'], name="생산성(인/시)", yaxis='y2', mode='lines+markers', line=dict(color='red', width=3)))
+    fig_prod.add_trace(go.Scatter(x=trend_df['Date'], y=trend_df['Target_UPH'], name="기준생산성(인/시)", yaxis='y2', mode='lines', line=dict(color='gray', dash='dash')))
+    fig_prod.update_layout(
+        yaxis=dict(title="물량 (Box)"),
+        yaxis2=dict(title="생산성 (UPH)", overlaying='y', side='right'),
+        barmode='group', height=400
+    )
+    st.plotly_chart(fig_prod, use_container_width=True)
+
+    # [4] 표 데이터 (자원 현황 & 일일 실적)
+    st.markdown("---")
+    colA, colB = st.columns(2)
+    with colA:
+        st.subheader("📋 운영 자원 현황")
+        latest_res = df[df['Date'] == latest_date].iloc[0]
+        prev_res = df[df['Date'] == (latest_date - pd.Timedelta(days=1))].iloc[0] if len(df['Date'].unique()) > 1 else latest_res
+        
+        resource_data = {
+            "구분": ["하역 (정규)", "하역 (임시)", "수배송 (지입)", "수배송 (임시)"],
+            "전일": [prev_res['Worker_Regular'], prev_res['Worker_Temp'], prev_res['Truck_Contract'], prev_res['Truck_Temp']],
+            "당일": [latest_res['Worker_Regular'], latest_res['Worker_Temp'], latest_res['Truck_Contract'], latest_res['Truck_Temp']]
+        }
+        res_df = pd.DataFrame(resource_data)
+        res_df['GAP'] = res_df['당일'] - res_df['전일']
+        st.dataframe(res_df, use_container_width=True, hide_index=True)
+
+    with colB:
+        st.subheader("📊 일일 운영 실적 (Box/SKU/PCS)")
+        curr_trend = trend_df[trend_df['Date'] == latest_date].iloc[0]
+        sku_count = df[df['Date'] == latest_date]['SKU'].nunique()
+        
+        perf_data = {
+            "단위": ["PCS", "Box", "SKU"],
+            "입고 (예정)": [curr_trend['In_P'], curr_trend['In_P']//5, sku_count],
+            "입고 (작업량)": [curr_trend['In_A'], curr_trend['In_A']//5, sku_count],
+            "입고 (미입)": [curr_trend['In_P'] - curr_trend['In_A'], (curr_trend['In_P'] - curr_trend['In_A'])//5, 0],
+            "출고 (예정)": [curr_trend['Out_P'], curr_trend['Out_P']//5, sku_count],
+            "출고 (작업량)": [curr_trend['Out_A'], curr_trend['Out_A']//5, sku_count],
+            "출고 (잔량)": [curr_trend['Out_P'] - curr_trend['Out_A'], (curr_trend['Out_P'] - curr_trend['Out_A'])//5, 0],
+        }
+        st.dataframe(pd.DataFrame(perf_data), use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # 7. AI 심층 리포트 및 외부 연동 (원본 그대로 유지!)
     # ==========================================
     st.markdown("---")
     if st.button("🤖 Lit.AI 심층 재무 분석 및 리포트 생성"):
