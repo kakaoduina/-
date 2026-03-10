@@ -38,6 +38,11 @@ st.markdown("""
     .stButton > button.confluence-btn:active {
         background-color: #091E42 !important;
     }
+    /* 텍스트 에어리어 스타일 약간 다듬기 */
+    .stTextArea textarea {
+        font-size: 15px !important;
+        line-height: 1.6 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -158,21 +163,32 @@ if uploaded_files:
         max_idx = np.argmax(c_vals)
         st.error(f"최대 원가 항목: **'{c_labels[max_idx]}'**")
 
-    # --- AI 분석 ---
+    # --- AI 분석 및 편집 섹션 ---
     st.markdown("---")
-    # 버튼을 누르면 상태를 업데이트
     if st.button("🤖 Lit.AI 심층 재무 분석 및 리포트 생성"):
         with st.spinner('Lit.AI 분석 중...'):
             summary = f"매출:{total_revenue}, 원가:{total_cost}, 이익:{total_profit}, 이익률:{margin_rate:.1f}%"
+            # AI 결과를 session_state에 최초 저장
             st.session_state.ai_report = get_logi_ai_analysis(summary)
-            st.session_state.ai_analysis_done = True # 분석 완료 상태 저장
+            st.session_state.ai_analysis_done = True 
 
-    # 분석이 완료된 상태(True)일 때만 아래 내용(리포트, 다운로드, 컨플루언스)을 보여줌
+    # 분석이 완료된 상태일 때 수정 가능한 텍스트 박스 제공
     if st.session_state.ai_analysis_done:
-        st.info("### 🤖 Lit.AI 가마감 리포트")
-        st.write(st.session_state.ai_report)
+        st.info("### 📝 Lit.AI 가마감 리포트 (직접 수정 가능)")
+        st.markdown("AI가 작성한 초안입니다. 아래 박스에서 내용을 자유롭게 수정하시고 클릭 바깥을 누르시면 자동 저장됩니다.")
+        
+        # [핵심 변경] st.write 대신 st.text_area를 사용하여 편집 가능하게 만듦
+        edited_report = st.text_area(
+            "리포트 내용 편집기", 
+            value=st.session_state.ai_report, 
+            height=350,
+            label_visibility="collapsed"
+        )
+        
+        # 사용자가 수정한 텍스트를 다시 session_state에 업데이트 (엑셀 다운로드 시 반영됨)
+        st.session_state.ai_report = edited_report
 
-        # 엑셀 파일 생성
+        # 엑셀 파일 생성 (수정된 edited_report 또는 session_state.ai_report가 들어감)
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             pd.DataFrame({
@@ -182,7 +198,7 @@ if uploaded_files:
             daily_stats.to_excel(writer, index=False, sheet_name='Daily_Stats')
             pd.DataFrame({"Lit.AI 제언": [st.session_state.ai_report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
         
-        # 다운로드 버튼 (이제 튕기지 않습니다)
+        # 다운로드 버튼
         st.download_button(
             label="💾 최종 가마감 엑셀 파일 다운로드",
             data=output.getvalue(),
@@ -193,18 +209,17 @@ if uploaded_files:
         st.markdown("---")
         st.subheader("🌐 외부 시스템 연동")
         
-        # [핵심] 컨플루언스 업로드 버튼
+        # 컨플루언스 업로드 버튼
         if st.button("📤 Confluence에 보고서 업로드", key="conf_upload"):
             with st.status("Confluence로 데이터 전송 중...", expanded=True) as status:
                 st.write("1. API 연결 확인 중...")
-                time.sleep(1) # 대기 시간 조정 (총 3~4초)
+                time.sleep(1) 
                 st.write("2. 리포트 본문 HTML 변환 중...")
                 time.sleep(1)
                 st.write("3. 최종 페이지 게시 중...")
                 time.sleep(1.5)
                 status.update(label="✅ 업로드 완료되었습니다!", state="complete", expanded=False)
             
-            # 완료 메시지 및 링크
             st.balloons()
             target_link = "https://www.naver.com/" 
             st.success(f"🎉 성공적으로 업로드되었습니다.")
