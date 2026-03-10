@@ -158,6 +158,8 @@ if uploaded_files:
                 data=output.getvalue(),
                 file_name=f"Logi_AI_Report_{datetime.date.today()}.xlsx",
                 mime="application/vnd.ms-excel"
-            )
+            st.upload_button(
+                label ="📤컨플루언스 업로드",
+                
 else:
     st.info("💡 사이드바에서 센터 설정을 완료한 후, 일일 보고서(CSV)들을 업로드해 주세요.")
