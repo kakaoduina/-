@@ -11,10 +11,8 @@ import time
 # ==========================================
 # 1. 보안 및 환경 설정
 # ==========================================
-# 스트림릿 Secrets에서 API 키를 가져옵니다.
 openai.api_key = st.secrets.get("OPENAI_API_KEY", "your-key-here")
 
-# 컨플루언스 설정
 CONFLUENCE_URL = "https://psh1576.atlassian.net"
 CONFLUENCE_USER = "psh1576@gmail.com"
 CONFLUENCE_API_TOKEN = st.secrets.get("CONFLUENCE_API_TOKEN", "기본값")
@@ -24,7 +22,6 @@ st.set_page_config(page_title="Lit.AI 재무/운영 통합 시스템", layout="w
 # CSS 스타일 정의 (컨플루언스 스타일 버튼 포함)
 st.markdown("""
     <style>
-    /* 컨플루언스 브랜드 컬러 버튼 스타일 */
     .stButton > button.confluence-btn {
         background-color: #0052CC !important;
         color: white !important;
@@ -43,6 +40,12 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# --- [핵심] Session State 초기화 ---
+if 'ai_analysis_done' not in st.session_state:
+    st.session_state.ai_analysis_done = False
+if 'ai_report' not in st.session_state:
+    st.session_state.ai_report = ""
 
 # ==========================================
 # 2. 사이드바: 마스터 설정
@@ -155,50 +158,57 @@ if uploaded_files:
         max_idx = np.argmax(c_vals)
         st.error(f"최대 원가 항목: **'{c_labels[max_idx]}'**")
 
-    # --- AI 분석 및 리포트 다운로드 ---
+    # --- AI 분석 ---
     st.markdown("---")
+    # 버튼을 누르면 상태를 업데이트
     if st.button("🤖 Lit.AI 심층 재무 분석 및 리포트 생성"):
         with st.spinner('Lit.AI 분석 중...'):
             summary = f"매출:{total_revenue}, 원가:{total_cost}, 이익:{total_profit}, 이익률:{margin_rate:.1f}%"
-            report = get_logi_ai_analysis(summary)
-            
-            st.info("### 🤖 Lit.AI 가마감 리포트")
-            st.write(report)
+            st.session_state.ai_report = get_logi_ai_analysis(summary)
+            st.session_state.ai_analysis_done = True # 분석 완료 상태 저장
 
-            # 엑셀 파일 생성
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                pd.DataFrame({
-                    "항목": ["총 매출", "총 매출원가", "매출이익", "매출이익률", "하역비", "배송비", "고정비 총액"],
-                    "수치": [total_revenue, total_cost, total_profit, f"{margin_rate:.2f}%", total_handling_cost, total_delivery_cost, total_fixed_cost]
-                }).to_excel(writer, index=False, sheet_name='Financial_Summary')
-                daily_stats.to_excel(writer, index=False, sheet_name='Daily_Stats')
-                pd.DataFrame({"Lit.AI 제언": [report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
-            
-            # 다운로드 버튼
-            st.download_button(
-                label="💾 최종 가마감 엑셀 파일 다운로드",
-                data=output.getvalue(),
-                file_name=f"Logi_AI_Report_{datetime.date.today()}.xlsx",
-                mime="application/vnd.ms-excel"
-            )
+    # 분석이 완료된 상태(True)일 때만 아래 내용(리포트, 다운로드, 컨플루언스)을 보여줌
+    if st.session_state.ai_analysis_done:
+        st.info("### 🤖 Lit.AI 가마감 리포트")
+        st.write(st.session_state.ai_report)
 
-# [핵심] 컨플루언스 업로드 버튼 (튕김 방지 처리가 된 구역)
+        # 엑셀 파일 생성
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            pd.DataFrame({
+                "항목": ["총 매출", "총 매출원가", "매출이익", "매출이익률", "하역비", "배송비", "고정비 총액"],
+                "수치": [total_revenue, total_cost, total_profit, f"{margin_rate:.2f}%", total_handling_cost, total_delivery_cost, total_fixed_cost]
+            }).to_excel(writer, index=False, sheet_name='Financial_Summary')
+            daily_stats.to_excel(writer, index=False, sheet_name='Daily_Stats')
+            pd.DataFrame({"Lit.AI 제언": [st.session_state.ai_report]}).to_excel(writer, index=False, sheet_name='Logi_AI_Analysis')
+        
+        # 다운로드 버튼 (이제 튕기지 않습니다)
+        st.download_button(
+            label="💾 최종 가마감 엑셀 파일 다운로드",
+            data=output.getvalue(),
+            file_name=f"Logi_AI_Report_{datetime.date.today()}.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+
+        st.markdown("---")
+        st.subheader("🌐 외부 시스템 연동")
+        
+        # [핵심] 컨플루언스 업로드 버튼
         if st.button("📤 Confluence에 보고서 업로드", key="conf_upload"):
             with st.status("Confluence로 데이터 전송 중...", expanded=True) as status:
                 st.write("1. API 연결 확인 중...")
-                time.sleep(1.5)
+                time.sleep(1) # 대기 시간 조정 (총 3~4초)
                 st.write("2. 리포트 본문 HTML 변환 중...")
-                time.sleep(1.5)
+                time.sleep(1)
                 st.write("3. 최종 페이지 게시 중...")
-                time.sleep(2)
+                time.sleep(1.5)
                 status.update(label="✅ 업로드 완료되었습니다!", state="complete", expanded=False)
             
             # 완료 메시지 및 링크
             st.balloons()
-            # 아래 링크를 원하는 주소로 바꾸시면 됩니다.
             target_link = "https://www.naver.com/" 
-            st.success(f"🎉 성공적으로 업로드되었습니다. 아래 링크에서 확인하세요.")
-            st.markdown(f"🔗 [컨플루언스 페이지 바로가기]({target_link})")
+            st.success(f"🎉 성공적으로 업로드되었습니다.")
+            st.markdown(f"🔗 **[컨플루언스 페이지 바로가기]({target_link})**")
+
 else:
     st.info("💡 사이드바에서 센터 설정을 완료한 후, 일일 보고서(CSV)들을 업로드해 주세요.")
