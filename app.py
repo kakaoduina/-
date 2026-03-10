@@ -90,7 +90,7 @@ def get_ai_schema_mapping(columns, sample_data):
 # ==========================================
 st.title("🚀 Lit.AI 재무/운영 통합 가마감 대시보드")
 
-tab1, tab2 = st.tabs(["📊 1. 일일 운영 현황 대시보드", "🔮 2. 26년 3월 가마감 예측 (P&L 추이)"])
+tab1, tab2 = st.tabs(["📊 1. 일일 운영 현황 대시보드", "🔮 2. 월간 가마감(예측 결산) 시뮬레이터"])
 
 # -------------------------------------------------------------------
 # [TAB 1] 기존 일일 운영 대시보드 로직
@@ -129,7 +129,6 @@ with tab1:
         for std_col, orig_col in st.session_state.column_mapping.items():
             df[std_col] = raw_df[orig_col] if orig_col in raw_df.columns else 0
                 
-        # [수정포인트 1] 업로드된 CSV의 실제 컬럼명(_PCS)을 내부 변수에 정확히 매핑하여 0으로 나오던 버그 수정
         extra_cols_mapping = {
             'Quantity_Box': 'Quantity_Box',
             'Worker_Regular': 'Worker_Regular',
@@ -147,7 +146,6 @@ with tab1:
 
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # [수정포인트 2] 일별(Daily) / 주별(Weekly) 선택 기능 추가
         st.markdown("---")
         view_mode = st.radio("📅 **데이터 조회 단위 선택**", ["일별 (Daily)", "주별 (Weekly)"], horizontal=True, key="tab1_view_mode")
         
@@ -438,105 +436,133 @@ with tab1:
 
 
 # -------------------------------------------------------------------
-# [TAB 2] 신규: 가마감 예측 추이 대시보드 (첨부 이미지 양식 적용)
+# [TAB 2] 신규: 가마감 예측 추이 대시보드
 # -------------------------------------------------------------------
 with tab2:
-    st.markdown("### 🔮 2026년 3월 가마감(임시마감) 예측 시뮬레이터")
-    st.write("1~2주차 실제 실적 데이터를 기반으로 3~4주차를 예측하고, 3월 최종 가마감 실적을 26년 사업계획과 비교합니다.")
+    st.markdown("### 🔮 월간 가마감(Soft Closing) 예측 시뮬레이터")
+    st.info("**가마감(임시마감)이란?**\n\n월 결산이 끝나기 전, 현재까지의 확정 실적(1~2주차)을 바탕으로 남은 기간(3~4주차)을 예측하여 **이번 달 최종 손익 착지점을 미리 파악**하는 작업입니다. 목표 미달이 예상될 경우, 월말이 오기 전에 도급 인력이나 배송 라인을 선제적으로 조정하여 **수익성을 방어하는 것이 핵심 목적**입니다.")
     
-    # 기본 예측 데이터셋 뼈대 구성 (하드코딩된 초기값)
-    def generate_default_prediction_dataset():
-        data = {
-            "구분(백만원)": [
-                "매출액", "물량(천개)", "판가(원)", "매출원가", "직접비", "- 도급비", "- 집하", "- 배송", 
-                "- 임차료", "- 수선비", "- 감가상각비", "- 소모품비", "- 기타", "간접원가", "매출이익", 
-                "매출이익(%)", "판매비", "공헌이익", "공헌이익(%)", "일반관리비", "영업이익", "영업이익(%)", 
-                "총 단위원가", "도급+소모품 단위원가", "- 도급 단위원가", "- 소모품 단위원가"
-            ],
-            "26년 월간계획": [
-                10000, 4000, 2500, 8000, 6500, 3000, 1000, 1500, 400, 100, 300, 150, 50, 
-                1500, 2000, 20.0, 500, 1500, 15.0, 500, 1000, 10.0, 2000, 787, 750, 37.5
-            ],
-            "1주차(실적)": [
-                2450, 980, 2500, 1950, 1600, 750, 250, 380, 100, 20, 75, 20, 5, 
-                350, 500, 20.4, 120, 380, 15.5, 125, 255, 10.4, 1989, 785, 765, 20.4
-            ],
-            "2주차(실적)": [
-                2520, 1010, 2495, 2000, 1650, 780, 260, 390, 100, 25, 75, 15, 5, 
-                350, 520, 20.6, 130, 390, 15.5, 125, 265, 10.5, 1980, 787, 772, 14.8
-            ]
-        }
-        return pd.DataFrame(data)
+    # 1. 샘플 데이터 CSV 텍스트 생성 (다운로드용)
+    sample_csv_data = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
+매출액,10000,2450,2520
+물량(천개),4000,980,1010
+판가(원),2500,2500,2495
+매출원가,8000,1950,2000
+직접비,6500,1600,1650
+- 도급비,3000,750,780
+- 집하,1000,250,260
+- 배송,1500,380,390
+- 임차료,400,100,100
+- 수선비,100,20,25
+- 감가상각비,300,75,75
+- 소모품비,150,20,15
+- 기타,50,5,5
+간접원가,1500,350,350
+매출이익,2000,500,520
+매출이익(%),20.0,20.4,20.6
+판매비,500,120,130
+공헌이익,1500,380,390
+공헌이익(%),15.0,15.5,15.5
+일반관리비,500,125,125
+영업이익,1000,255,265
+영업이익(%),10.0,10.4,10.5
+총 단위원가,2000,1989,1980
+도급+소모품 단위원가,787,785,787
+- 도급 단위원가,750,765,772
+- 소모품 단위원가,37.5,20.4,14.8"""
 
-    if 'pred_df' not in st.session_state:
-        st.session_state.pred_df = generate_default_prediction_dataset()
+    st.markdown("#### 📥 1. 가마감 예측용 데이터셋 템플릿 다운로드")
+    st.write("아래 버튼을 눌러 양식에 맞는 CSV 데이터를 다운로드하세요. 이 파일을 기반으로 예측이 진행됩니다.")
+    st.download_button(
+        label="📄 26년 3월 예측 테스트용 데이터셋(CSV) 다운로드",
+        data=sample_csv_data.encode('utf-8-sig'), # 엑셀에서 한글 깨짐 방지
+        file_name="26년_3월_실적_예측데이터.csv",
+        mime="text/csv",
+        key="tab2_download_sample"
+    )
 
-    # CSV 파일 업로드 시 데이터 덮어쓰기 기능
-    st.markdown("#### 🔄 외부 예측 데이터 덮어쓰기")
-    pred_upload = st.file_uploader("이전 챗에서 제공받은 [26년_3월_예측_데이터.csv]를 업로드하면 실적이 업데이트됩니다.", type=['csv'], key="tab2_uploader")
+    st.markdown("---")
+    st.markdown("#### 🔄 2. 실적 데이터 업로드 및 가마감 실행")
+    pred_upload = st.file_uploader("위에서 다운받은 CSV 파일(또는 자체 실적이 입력된 파일)을 업로드해주세요.", type=['csv'], key="tab2_uploader")
     
     if pred_upload is not None:
         try:
-            uploaded_pred_df = pd.read_csv(pred_upload)
-            # 업로드된 파일의 컬럼명이 기본 뼈대와 다를 경우를 대비하여 매핑
-            uploaded_pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
-            st.session_state.pred_df = uploaded_pred_df
-            st.success("✅ 업로드된 데이터가 성공적으로 반영되었습니다!")
+            # 업로드된 파일 읽기
+            pred_df = pd.read_csv(pred_upload)
+            # 안전하게 컬럼명 통일 (사용자가 임의로 변경했을 경우 대비)
+            pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
+            
+            st.success("✅ 실적 데이터가 정상적으로 로드되었습니다! 아래에서 예측 가중치를 조정하여 가마감을 진행하세요.")
+            
+            # 3. 3~4주차 예측 로직 적용 (1,2주차 평균 베이스 + 가중치)
+            st.markdown("#### ⚙️ 3. 잔여 주차 예측 가중치 설정")
+            pred_weight = st.slider("📈 3~4주차 예측 가중치 (1,2주차 평균 실적 대비 % 적용)", 50, 150, 100, step=5, key="tab2_weight_slider") / 100.0
+            
+            # 예측값 계산 로직
+            pred_df["3주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
+            pred_df["4주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
+            
+            # 월 총 누적 가마감 산출
+            pred_df["월 가마감(총합)"] = pred_df["1주차(실적)"] + pred_df["2주차(실적)"] + pred_df["3주차(예측)"] + pred_df["4주차(예측)"]
+            pred_df["계획대비 달성률(%)"] = round((pred_df["월 가마감(총합)"] / pred_df["26년 월간계획"]) * 100, 1)
+
+            # 4. 데이터 테이블 표시
+            st.markdown("#### 📋 월 가마감 통합 명세서 (예측 반영)")
+            def highlight_forecast(s):
+                # 예측 및 총합 컬럼에 파스텔톤 배경색 적용
+                return ['background-color: #f0f8ff' if '예측' in col or '총합' in col else '' for col in s.index]
+                
+            st.dataframe(pred_df.style.apply(highlight_forecast, axis=1), use_container_width=True, height=500)
+
+            # 5. 핵심 지표 추이 그래프 시각화
+            st.markdown("---")
+            st.markdown("#### 📉 주차별 추이 및 월말 예측 시각화")
+            
+            chart_cols = ["1주차(실적)", "2주차(실적)", "3주차(예측)", "4주차(예측)"]
+            
+            try:
+                # 차트용 데이터 추출 (매출액, 매출원가, 영업이익)
+                rev_row = pred_df[pred_df["구분(백만원)"] == "매출액"][chart_cols].iloc[0]
+                profit_row = pred_df[pred_df["구분(백만원)"] == "영업이익"][chart_cols].iloc[0]
+                cost_row = pred_df[pred_df["구분(백만원)"] == "매출원가"][chart_cols].iloc[0]
+                
+                trend_data = pd.DataFrame({
+                    "주차": chart_cols,
+                    "매출액(백만원)": rev_row.values,
+                    "매출원가(백만원)": cost_row.values,
+                    "영업이익(백만원)": profit_row.values
+                })
+
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    # 혼합 차트 (Bar: 매출/원가, Line: 이익)
+                    fig_trend = go.Figure()
+                    
+                    # 실적(진한색) vs 예측(옅은색) 시각적 구분
+                    colors_rev = ['#1f77b4', '#1f77b4', '#aec7e8', '#aec7e8']
+                    colors_cost = ['#ff7f0e', '#ff7f0e', '#ffbb78', '#ffbb78']
+
+                    fig_trend.add_trace(go.Bar(x=trend_data["주차"], y=trend_data["매출액(백만원)"], name="매출액", marker_color=colors_rev))
+                    fig_trend.add_trace(go.Bar(x=trend_data["주차"], y=trend_data["매출원가(백만원)"], name="매출원가", marker_color=colors_cost))
+                    fig_trend.add_trace(go.Scatter(x=trend_data["주차"], y=trend_data["영업이익(백만원)"], name="영업이익", mode='lines+markers+text', 
+                                                   text=trend_data["영업이익(백만원)"], textposition="top center",
+                                                   line=dict(color='red', width=3)))
+                    
+                    fig_trend.update_layout(title="주차별 매출/원가 및 영업이익 추이 (진한색: 실적, 옅은색: 예측)", barmode='group')
+                    st.plotly_chart(fig_trend, use_container_width=True)
+
+                with col_chart2:
+                    # 직접비 구성 비율 파이 차트 (월 통합 기준)
+                    direct_costs = pred_df[pred_df["구분(백만원)"].str.contains("- 도급비|- 집하|- 배송|- 임차료|- 수선비|- 감가상각비|- 소모품비|- 기타")]
+                    fig_pie = px.pie(direct_costs, values='월 가마감(총합)', names='구분(백만원)', hole=0.4, title="월 가마감 기준 직접비 구성비 예측")
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                    
+            except IndexError:
+                st.warning("⚠️ 업로드된 데이터 형태가 예상과 다릅니다. '구분(백만원)' 컬럼에 '매출액', '매출원가', '영업이익' 항목이 존재하는지 확인해주세요.")
+                
         except Exception as e:
             st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
-
-    pred_df = st.session_state.pred_df.copy()
-
-    st.markdown("---")
-
-    # 3~4주차 예측 로직 적용 (1,2주차 평균 베이스 + 가중치)
-    pred_weight = st.slider("📈 3~4주차 예측 가중치 설정 (1,2주차 평균 대비 % 적용)", 80, 120, 100, key="tab2_weight_slider") / 100.0
-    
-    pred_df["3주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
-    pred_df["4주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
-    
-    # 3월 총 누적 가마감 산출
-    pred_df["3월 가마감(총합)"] = pred_df["1주차(실적)"] + pred_df["2주차(실적)"] + pred_df["3주차(예측)"] + pred_df["4주차(예측)"]
-    pred_df["계획대비 달성률(%)"] = round((pred_df["3월 가마감(총합)"] / pred_df["26년 월간계획"]) * 100, 1)
-
-    # 데이터 테이블 표시 (스타일링 적용)
-    st.markdown("#### 📋 26년 3월 가마감 통합 명세서")
-    
-    def highlight_forecast(s):
-        return ['background-color: #f0f8ff' if '예측' in col else '' for col in s.index]
-        
-    st.dataframe(pred_df.style.apply(highlight_forecast, axis=1), use_container_width=True, height=600)
-
-    # 핵심 지표 추이 그래프
-    st.markdown("---")
-    st.markdown("#### 📉 주차별 추이 및 월말 예측 시각화")
-    
-    chart_cols = ["1주차(실적)", "2주차(실적)", "3주차(예측)", "4주차(예측)"]
-    
-    try:
-        rev_row = pred_df[pred_df["구분(백만원)"] == "매출액"][chart_cols].iloc[0]
-        profit_row = pred_df[pred_df["구분(백만원)"] == "영업이익"][chart_cols].iloc[0]
-        
-        trend_data = pd.DataFrame({
-            "주차": chart_cols,
-            "매출액(백만원)": rev_row.values,
-            "영업이익(백만원)": profit_row.values
-        })
-
-        col_chart1, col_chart2 = st.columns(2)
-        
-        with col_chart1:
-            fig_trend = go.Figure()
-            fig_trend.add_trace(go.Bar(x=trend_data["주차"], y=trend_data["매출액(백만원)"], name="매출액", marker_color=['#0052CC', '#0052CC', '#B3D4FF', '#B3D4FF']))
-            fig_trend.add_trace(go.Scatter(x=trend_data["주차"], y=trend_data["영업이익(백만원)"], name="영업이익", mode='lines+markers', line=dict(color='red', width=3)))
-            fig_trend.update_layout(title="주차별 매출 및 영업이익 추이 (파스텔톤: 예측치)", barmode='group')
-            st.plotly_chart(fig_trend, use_container_width=True)
-
-        with col_chart2:
-            # 직접비 구성 비율 (3월 통합 기준)
-            direct_costs = pred_df[pred_df["구분(백만원)"].str.contains("- 도급비|- 집하|- 배송|- 임차료|- 수선비|- 감가상각비|- 소모품비|- 기타")]
-            fig_pie = px.pie(direct_costs, values='3월 가마감(총합)', names='구분(백만원)', hole=0.4, title="3월 가마감 기준 직접비 구성비 예측")
-            st.plotly_chart(fig_pie, use_container_width=True)
             
-    except IndexError:
-        st.warning("데이터 형태가 예상과 다릅니다. 업로드한 CSV 파일의 '구분(백만원)'에 '매출액' 및 '영업이익' 행이 포함되어 있는지 확인해주세요.")
+    else:
+        st.info("💡 위에서 제공된 템플릿 CSV를 다운로드 한 후, 업로드 창에 넣어주시면 예측 분석이 즉시 시작됩니다.")
