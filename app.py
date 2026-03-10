@@ -183,30 +183,22 @@ if uploaded_files:
                 mime="application/vnd.ms-excel"
             )
 
-            # ---------------------------------------------------------
-            # [신규] 컨플루언스 업로드 섹션
-            # ---------------------------------------------------------
-            st.markdown("---")
-            st.subheader("🌐 외부 시스템 연동")
+# [핵심] 컨플루언스 업로드 버튼 (튕김 방지 처리가 된 구역)
+        if st.button("📤 Confluence에 보고서 업로드", key="conf_upload"):
+            with st.status("Confluence로 데이터 전송 중...", expanded=True) as status:
+                st.write("1. API 연결 확인 중...")
+                time.sleep(1.5)
+                st.write("2. 리포트 본문 HTML 변환 중...")
+                time.sleep(1.5)
+                st.write("3. 최종 페이지 게시 중...")
+                time.sleep(2)
+                status.update(label="✅ 업로드 완료되었습니다!", state="complete", expanded=False)
             
-            if st.button("📤 Confluence에 보고서 업로드", key="conf_upload", help="아틀라시안 컨플루언스로 데이터를 전송합니다."):
-                # 버튼 클래스를 CSS로 제어하기 위해 key를 지정했습니다.
-                # 진행 상태 시뮬레이션
-                with st.status("Confluence API 연결 및 데이터 전송 중...", expanded=True) as status:
-                    st.write("Confluence 스페이스 권한 확인 중...")
-                    time.sleep(1.5)
-                    st.write("가마감 데이터 HTML 변환 중...")
-                    time.sleep(1.5)
-                    st.write("차트 이미지 업로드 및 페이지 생성 중...")
-                    time.sleep(2)
-                    status.update(label="✅ 업로드 완료!", state="complete", expanded=False)
-                
-                st.balloons()
-                st.success("✨ 업로드가 완료되었습니다!")
-                
-                # 수정 가능한 타겟 링크
-                target_url = "https://www.naver.com/" 
-                st.markdown(f"🔗 **[컨플루언스에서 생성된 페이지 확인하기]({target_url})**")
-
+            # 완료 메시지 및 링크
+            st.balloons()
+            # 아래 링크를 원하는 주소로 바꾸시면 됩니다.
+            target_link = "https://www.naver.com/" 
+            st.success(f"🎉 성공적으로 업로드되었습니다. 아래 링크에서 확인하세요.")
+            st.markdown(f"🔗 [컨플루언스 페이지 바로가기]({target_link})")
 else:
     st.info("💡 사이드바에서 센터 설정을 완료한 후, 일일 보고서(CSV)들을 업로드해 주세요.")
