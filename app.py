@@ -440,7 +440,7 @@ with tab1:
                     status.update(label="✅ 업로드 완료되었습니다!", state="complete", expanded=False)
                 
                 st.balloons()
-                target_link = "https://www.naver.com/" 
+                target_link = "https://conf.cjlogistics.com/#popular" 
                 st.success(f"🎉 성공적으로 업로드되었습니다.")
                 st.markdown(f"🔗 **[컨플루언스 페이지 바로가기]({target_link})**")
 
