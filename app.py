@@ -3,11 +3,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import openai
-from io import BytesIO, StringIO
+from io import BytesIO
 import datetime
 import numpy as np
 import time
 import json
+import os
 
 # ==========================================
 # 1. 보안 및 환경 설정
@@ -117,15 +118,20 @@ with tab1:
             raw_df = pd.concat([pd.read_csv(f) for f in uploaded_files], ignore_index=True)
             st.session_state.use_demo_data_1 = False # 실제 파일 업로드 시 시연 모드 해제
         else:
-            # 시연용 샘플 데이터 하드코딩 (버튼 클릭 시 자동 반영)
-            sample_csv_1 = """Date,Order_ID,SKU,Quantity_PCS,Quantity_Box,UnitPrice,Worker_Regular,Worker_Temp,Worker_Count,Truck_Contract,Truck_Temp,Truck_Count,Inbound_Planned_PCS,Inbound_Actual_PCS,Outbound_Planned_PCS,Outbound_Actual_PCS,Revenue,Quantity
-2026-03-01,ORD-2026-03-01-001,의류(소형),5,1,4930,138,57,195,72,12,84,12674,12605,14686,13957,24650,5
-2026-03-01,ORD-2026-03-01-002,식품(냉장),5,1,6224,138,57,195,72,12,84,12674,12605,14686,13957,31120,5
-2026-03-01,ORD-2026-03-01-003,뷰티(합포장),5,1,6814,138,57,195,72,12,84,12674,12605,14686,13957,34070,5
-2026-03-02,ORD-2026-03-02-001,식품(냉장),4,1,6085,129,36,165,70,18,88,13110,12965,12791,12543,24340,4
-2026-03-02,ORD-2026-03-02-002,식품(냉장),5,1,3335,129,36,165,70,18,88,13110,12965,12791,12543,16675,5"""
-            raw_df = pd.read_csv(StringIO(sample_csv_1))
-            st.success("✅ [시연 모드] 샘플 운영 데이터가 자동으로 로드되었습니다.")
+            # 시연용 실제 로컬 파일 로드
+            demo_files = [
+                "New_Pro_Report_2026-03-01.csv",
+                "New_Pro_Report_2026-03-02.csv",
+                "New_Pro_Report_2026-03-03.csv",
+                "New_Pro_Report_2026-03-04.csv",
+                "New_Pro_Report_2026-03-05.csv"
+            ]
+            try:
+                raw_df = pd.concat([pd.read_csv(f) for f in demo_files], ignore_index=True)
+                st.success("✅ [시연 모드] 5일치 실제 로컬 데이터가 성공적으로 로드되었습니다.")
+            except FileNotFoundError:
+                st.error("⚠️ 시연용 파일(New_Pro_Report_*.csv) 5개를 파이썬 파일과 같은 폴더에 넣어주세요!")
+                st.stop()
         
         if not st.session_state.schema_mapped:
             st.info("🤖 AI가 업로드된 데이터의 스키마를 분석 중입니다...")
@@ -453,7 +459,7 @@ with tab1:
                     status.update(label="✅ 업로드 완료되었습니다!", state="complete", expanded=False)
                 
                 st.balloons()
-                target_link = "https://www.cjlogistics.com/ko/main" 
+                target_link = "https://www.naver.com/" 
                 st.success(f"🎉 성공적으로 업로드되었습니다.")
                 st.markdown(f"🔗 **[컨플루언스 페이지 바로가기]({target_link})**")
 
@@ -487,26 +493,13 @@ with tab2:
                 pred_df = pd.read_csv(pred_upload)
                 st.session_state.use_demo_data_2 = False # 실제 파일 업로드 시 시연 모드 해제
             else:
-                # 시연용 샘플 데이터 하드코딩
-                sample_csv_2 = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
-매출액,10000,2450,2520
-물량(천개),4000,980,1010
-판가(원),2500,2500,2495
-매출원가,8000,1950,2000
-직접비,6500,1600,1650
-- 도급비,3000,750,780
-- 집하,1000,250,260
-- 배송,1500,380,390
-- 임차료,400,100,100
-- 수선비,100,20,25
-- 감가상각비,300,75,75
-- 소모품비,150,20,15
-- 기타,50,5,5
-간접원가,1500,350,350
-매출이익,2000,500,520
-매출이익(%),20.0,20.4,20.6"""
-                pred_df = pd.read_csv(StringIO(sample_csv_2))
-                st.success("✅ [시연 모드] 실적/예측 데이터가 자동으로 로드되었습니다.")
+                # 시연용 실제 로컬 파일 로드
+                try:
+                    pred_df = pd.read_csv("26년_3월_실적_예측데이터.csv")
+                    st.success("✅ [시연 모드] 3월 실적/예측 데이터가 성공적으로 로드되었습니다.")
+                except FileNotFoundError:
+                    st.error("⚠️ 시연용 파일('26년_3월_실적_예측데이터.csv')을 파이썬 파일과 같은 폴더에 넣어주세요!")
+                    st.stop()
 
             # 안전하게 컬럼명 통일 (사용자가 임의로 변경했을 경우 대비)
             pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
