@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import openai
-from io import BytesIO
+from io import BytesIO, StringIO
 import datetime
 import numpy as np
 import time
@@ -24,6 +24,7 @@ st.markdown("""
     <style>
     .stButton > button.confluence-btn { background-color: #0052CC !important; color: white !important; }
     .stTextArea textarea { font-size: 15px !important; line-height: 1.6 !important; }
+    div.stButton > button:first-child { font-weight: bold; border-radius: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -36,6 +37,10 @@ if 'schema_mapped' not in st.session_state:
     st.session_state.schema_mapped = False
 if 'column_mapping' not in st.session_state:
     st.session_state.column_mapping = {}
+if 'use_demo_data_1' not in st.session_state:
+    st.session_state.use_demo_data_1 = False
+if 'use_demo_data_2' not in st.session_state:
+    st.session_state.use_demo_data_2 = False
 
 # ==========================================
 # 2. 사이드바: 마스터 설정
@@ -93,26 +98,34 @@ st.title("🚀 Lit.AI 운영 통합 가마감 대시보드")
 tab1, tab2 = st.tabs(["📊 1. 일일 운영 현황 대시보드", "🔮 2. 월간 가마감(예측 결산) 시뮬레이터"])
 
 # -------------------------------------------------------------------
-# [TAB 1] 기존 일일 운영 대시보드 로직
+# [TAB 1] 일일 운영 대시보드 로직
 # -------------------------------------------------------------------
 with tab1:
-    col_dl1, col_dl2 = st.columns([3, 1])
-    with col_dl1:
-        st.markdown("### 📊 일일 운영 데이터 업로드")
-    with col_dl2:
-        # [추가됨] 시연용 샘플 데이터 다운로드 버튼 (Tab 1)
-        sample_csv_1 = """Date,Order_ID,SKU,Quantity_PCS,Quantity_Box,UnitPrice,Worker_Regular,Worker_Temp,Worker_Count,Truck_Contract,Truck_Temp,Truck_Count,Inbound_Planned_PCS,Inbound_Actual_PCS,Outbound_Planned_PCS,Outbound_Actual_PCS,Revenue,Quantity
-2026-03-01,ORD-2026-03-01-00000,의류(소형),5,1,4930,138,57,195,72,12,84,12674,12605,14686,13957,24650,5
-2026-03-01,ORD-2026-03-01-00001,식품(냉장),5,1,6224,138,57,195,72,12,84,12674,12605,14686,13957,31120,5
-2026-03-01,ORD-2026-03-01-00002,뷰티(합포장),5,1,6814,138,57,195,72,12,84,12674,12605,14686,13957,34070,5
-2026-03-02,ORD-2026-03-02-00000,식품(냉장),4,1,6085,129,36,165,70,18,88,13110,12965,12791,12543,24340,4
-2026-03-02,ORD-2026-03-02-00001,식품(냉장),5,1,3335,129,36,165,70,18,88,13110,12965,12791,12543,16675,5"""
-        st.download_button(label="📥 Tab 1 실습용 샘플 다운로드", data=sample_csv_1.encode('utf-8-sig'), file_name="New_Pro_Report_Sample.csv", mime="text/csv")
+    col_up1, col_up2 = st.columns([3, 1])
+    with col_up1:
+        uploaded_files = st.file_uploader("일일 보고서(CSV) 다중 업로드 (최대 10일치 가능)", type=['csv'], accept_multiple_files=True, key="tab1_uploader")
+    with col_up2:
+        st.write("") 
+        st.write("")
+        if st.button("🚀 [시연용] 샘플 데이터 자동 로드", use_container_width=True):
+            st.session_state.use_demo_data_1 = True
+            st.rerun()
 
-    uploaded_files = st.file_uploader("일일 보고서(CSV) 다중 업로드 (최대 10일치 가능)", type=['csv'], accept_multiple_files=True, key="tab1_uploader")
-
-    if uploaded_files:
-        raw_df = pd.concat([pd.read_csv(f) for f in uploaded_files], ignore_index=True)
+    # 업로드된 파일이 있거나 시연 버튼을 눌렀을 경우
+    if uploaded_files or st.session_state.use_demo_data_1:
+        if uploaded_files:
+            raw_df = pd.concat([pd.read_csv(f) for f in uploaded_files], ignore_index=True)
+            st.session_state.use_demo_data_1 = False # 실제 파일 업로드 시 시연 모드 해제
+        else:
+            # 시연용 샘플 데이터 하드코딩 (버튼 클릭 시 자동 반영)
+            sample_csv_1 = """Date,Order_ID,SKU,Quantity_PCS,Quantity_Box,UnitPrice,Worker_Regular,Worker_Temp,Worker_Count,Truck_Contract,Truck_Temp,Truck_Count,Inbound_Planned_PCS,Inbound_Actual_PCS,Outbound_Planned_PCS,Outbound_Actual_PCS,Revenue,Quantity
+2026-03-01,ORD-2026-03-01-001,의류(소형),5,1,4930,138,57,195,72,12,84,12674,12605,14686,13957,24650,5
+2026-03-01,ORD-2026-03-01-002,식품(냉장),5,1,6224,138,57,195,72,12,84,12674,12605,14686,13957,31120,5
+2026-03-01,ORD-2026-03-01-003,뷰티(합포장),5,1,6814,138,57,195,72,12,84,12674,12605,14686,13957,34070,5
+2026-03-02,ORD-2026-03-02-001,식품(냉장),4,1,6085,129,36,165,70,18,88,13110,12965,12791,12543,24340,4
+2026-03-02,ORD-2026-03-02-002,식품(냉장),5,1,3335,129,36,165,70,18,88,13110,12965,12791,12543,16675,5"""
+            raw_df = pd.read_csv(StringIO(sample_csv_1))
+            st.success("✅ [시연 모드] 샘플 운영 데이터가 자동으로 로드되었습니다.")
         
         if not st.session_state.schema_mapped:
             st.info("🤖 AI가 업로드된 데이터의 스키마를 분석 중입니다...")
@@ -445,11 +458,11 @@ with tab1:
                 st.markdown(f"🔗 **[컨플루언스 페이지 바로가기]({target_link})**")
 
     else:
-        st.info("💡 실습용 데이터를 다운받아 업로드하거나, 보유하고 계신 일일 보고서(CSV)들을 업로드해 주세요.")
+        st.info("💡 우측 상단의 [🚀 시연용 샘플 데이터 자동 로드] 버튼을 누르거나 CSV 파일을 업로드해주세요.")
 
 
 # -------------------------------------------------------------------
-# [TAB 2] 신규: 가마감 예측 추이 대시보드
+# [TAB 2] 가마감 예측 추이 대시보드
 # -------------------------------------------------------------------
 with tab2:
     st.markdown("### 🔮 월간 가마감(Soft Closing) 예측 시뮬레이터")
@@ -457,8 +470,25 @@ with tab2:
 
     st.markdown("#### 🔄 1. 실적 데이터 업로드 및 가마감 실행")
     
-    # [추가됨] 시연용 샘플 데이터 다운로드 버튼 (Tab 2)
-    sample_csv_2 = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
+    col_up3, col_up4 = st.columns([3, 1])
+    with col_up3:
+        pred_upload = st.file_uploader("자체 실적이 입력된 테스트 CSV 파일을 업로드해주세요.", type=['csv'], key="tab2_uploader")
+    with col_up4:
+        st.write("") 
+        st.write("")
+        if st.button("🚀 [시연용] 가마감 예측 데이터 자동 로드", use_container_width=True):
+            st.session_state.use_demo_data_2 = True
+            st.rerun()
+            
+    if pred_upload is not None or st.session_state.use_demo_data_2:
+        try:
+            if pred_upload is not None:
+                # 업로드된 파일 읽기
+                pred_df = pd.read_csv(pred_upload)
+                st.session_state.use_demo_data_2 = False # 실제 파일 업로드 시 시연 모드 해제
+            else:
+                # 시연용 샘플 데이터 하드코딩
+                sample_csv_2 = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
 매출액,10000,2450,2520
 물량(천개),4000,980,1010
 판가(원),2500,2500,2495
@@ -475,23 +505,11 @@ with tab2:
 간접원가,1500,350,350
 매출이익,2000,500,520
 매출이익(%),20.0,20.4,20.6"""
-    
-    col_dl3, col_dl4 = st.columns([3, 1])
-    with col_dl3:
-        pred_upload = st.file_uploader("자체 실적이 입력된 테스트 CSV 파일을 업로드해주세요.", type=['csv'], key="tab2_uploader")
-    with col_dl4:
-        st.write("") # 높이 맞춤용 여백
-        st.write("")
-        st.download_button(label="📥 Tab 2 실습용 샘플 다운로드", data=sample_csv_2.encode('utf-8-sig'), file_name="26년_3월_실적_예측데이터.csv", mime="text/csv")
-    
-    if pred_upload is not None:
-        try:
-            # 업로드된 파일 읽기
-            pred_df = pd.read_csv(pred_upload)
+                pred_df = pd.read_csv(StringIO(sample_csv_2))
+                st.success("✅ [시연 모드] 실적/예측 데이터가 자동으로 로드되었습니다.")
+
             # 안전하게 컬럼명 통일 (사용자가 임의로 변경했을 경우 대비)
             pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
-            
-            st.success("✅ 실적 데이터가 정상적으로 로드되었습니다! 아래에서 예측 가중치를 조정하여 가마감을 진행하세요.")
             
             # 2. 3~4주차 예측 로직 적용 (1,2주차 평균 베이스 + 가중치)
             st.markdown("#### ⚙️ 2. 잔여 주차 예측 가중치 설정")
@@ -561,7 +579,7 @@ with tab2:
                 st.warning("⚠️ 업로드된 데이터 형태가 예상과 다릅니다. '구분(백만원)' 컬럼에 '매출액', '매출원가', '영업이익' 항목이 존재하는지 확인해주세요.")
                 
         except Exception as e:
-            st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+            st.error(f"데이터를 처리하는 중 오류가 발생했습니다: {e}")
             
     else:
-        st.info("💡 실습용 CSV 파일을 먼저 다운받은 후, 바로 옆의 업로드 창에 넣어주시면 예측 분석이 즉시 시작됩니다.")
+        st.info("💡 우측 상단의 [🚀 시연용 가마감 예측 데이터 자동 로드] 버튼을 누르거나 CSV 파일을 업로드해주세요.")
