@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import openai
-from io import BytesIO
+from io import BytesIO, StringIO
 import datetime
 import numpy as np
 import time
@@ -112,13 +112,11 @@ with tab1:
             st.session_state.use_demo_data_1 = True
             st.rerun()
 
-    # 업로드된 파일이 있거나 시연 버튼을 눌렀을 경우
     if uploaded_files or st.session_state.use_demo_data_1:
         if uploaded_files:
             raw_df = pd.concat([pd.read_csv(f) for f in uploaded_files], ignore_index=True)
-            st.session_state.use_demo_data_1 = False # 실제 파일 업로드 시 시연 모드 해제
+            st.session_state.use_demo_data_1 = False 
         else:
-            # 시연용 실제 로컬 파일 로드
             demo_files = [
                 "New_Pro_Report_2026-03-01.csv",
                 "New_Pro_Report_2026-03-02.csv",
@@ -127,11 +125,25 @@ with tab1:
                 "New_Pro_Report_2026-03-05.csv"
             ]
             try:
+                # 1. 파일이 있으면 실제 파일 로드
                 raw_df = pd.concat([pd.read_csv(f) for f in demo_files], ignore_index=True)
                 st.success("✅ [시연 모드] 5일치 실제 로컬 데이터가 성공적으로 로드되었습니다.")
             except FileNotFoundError:
-                st.error("⚠️ 시연용 파일(New_Pro_Report_*.csv) 5개를 파이썬 파일과 같은 폴더에 넣어주세요!")
-                st.stop()
+                # 2. 파일이 없으면 앱이 멈추지 않도록 무적 백업 데이터 로드
+                st.warning("⚠️ 지정된 위치에 파일이 없어 내장된 안전 백업 데이터로 시연을 진행합니다.")
+                backup_csv_1 = """Date,Order_ID,SKU,Quantity_PCS,Quantity_Box,UnitPrice,Worker_Regular,Worker_Temp,Worker_Count,Truck_Contract,Truck_Temp,Truck_Count,Inbound_Planned_PCS,Inbound_Actual_PCS,Outbound_Planned_PCS,Outbound_Actual_PCS,Revenue,Quantity
+2026-03-01,ORD-01,의류(소형),5,1,4930,138,57,195,72,12,84,12674,12605,14686,13957,24650,5
+2026-03-01,ORD-02,식품(냉장),5,1,6224,138,57,195,72,12,84,12674,12605,14686,13957,31120,5
+2026-03-01,ORD-03,뷰티(합포장),5,1,6814,138,57,195,72,12,84,12674,12605,14686,13957,34070,5
+2026-03-02,ORD-04,식품(냉장),4,1,6085,129,36,165,70,18,88,13110,12965,12791,12543,24340,4
+2026-03-02,ORD-05,식품(냉장),5,1,3335,129,36,165,70,18,88,13110,12965,12791,12543,16675,5
+2026-03-03,ORD-06,의류(소형),7,1,6155,133,53,186,67,17,84,10241,10054,13388,12809,43085,7
+2026-03-03,ORD-07,식품(냉장),7,1,4476,133,53,186,67,17,84,10241,10054,13388,12809,31332,7
+2026-03-04,ORD-08,식품(냉장),9,1,4027,122,46,168,66,23,89,10765,10577,16277,15809,36243,9
+2026-03-04,ORD-09,식품(냉장),7,1,4364,122,46,168,66,23,89,10765,10577,16277,15809,30548,7
+2026-03-05,ORD-10,의류(소형),4,1,4287,122,44,166,73,24,97,14215,13792,14507,14411,17148,4
+2026-03-05,ORD-11,의류(소형),8,1,5564,122,44,166,73,24,97,14215,13792,14507,14411,44512,8"""
+                raw_df = pd.read_csv(StringIO(backup_csv_1))
         
         if not st.session_state.schema_mapped:
             st.info("🤖 AI가 업로드된 데이터의 스키마를 분석 중입니다...")
@@ -156,7 +168,6 @@ with tab1:
                 st.session_state.column_mapping = mapped_cols
                 st.success("매핑이 확정되었습니다!")
 
-        # 데이터셋 구성 (매핑된 데이터)
         df = pd.DataFrame()
         for std_col, orig_col in st.session_state.column_mapping.items():
             df[std_col] = raw_df[orig_col] if orig_col in raw_df.columns else 0
@@ -489,87 +500,116 @@ with tab2:
     if pred_upload is not None or st.session_state.use_demo_data_2:
         try:
             if pred_upload is not None:
-                # 업로드된 파일 읽기
                 pred_df = pd.read_csv(pred_upload)
-                st.session_state.use_demo_data_2 = False # 실제 파일 업로드 시 시연 모드 해제
+                st.session_state.use_demo_data_2 = False 
             else:
-                # 시연용 실제 로컬 파일 로드
                 try:
+                    # 1. 파일이 있으면 실제 예측파일 로드
                     pred_df = pd.read_csv("26년_3월_실적_예측데이터.csv")
                     st.success("✅ [시연 모드] 3월 실적/예측 데이터가 성공적으로 로드되었습니다.")
                 except FileNotFoundError:
-                    st.error("⚠️ 시연용 파일('26년_3월_실적_예측데이터.csv')을 파이썬 파일과 같은 폴더에 넣어주세요!")
-                    st.stop()
+                    # 2. 파일이 없거나 오류 발생 시 무적 백업 데이터 로드 (영업이익/매출이익 완벽 포함)
+                    st.warning("⚠️ 지정된 위치에 파일이 없어 내장된 안전 백업 데이터로 시연을 진행합니다.")
+                    backup_csv_2 = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
+매출액,10000,2450,2520
+물량(천개),4000,980,1010
+판가(원),2500,2500,2495
+매출원가,8000,1950,2000
+직접비,6500,1600,1650
+- 도급비,3000,750,780
+- 집하,1000,250,260
+- 배송,1500,380,390
+- 임차료,400,100,100
+- 수선비,100,20,25
+- 감가상각비,300,75,75
+- 소모품비,150,20,15
+- 기타,50,5,5
+간접원가,1500,350,350
+매출이익,2000,500,520
+매출이익(%),20.0,20.4,20.6
+판매비,500,120,130
+공헌이익,1500,380,390
+공헌이익(%),15.0,15.5,15.5
+일반관리비,500,125,125
+영업이익,1000,255,265"""
+                    pred_df = pd.read_csv(StringIO(backup_csv_2))
 
-            # 안전하게 컬럼명 통일 (사용자가 임의로 변경했을 경우 대비)
+            # 안전하게 컬럼명 통일
             pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
             
-            # 2. 3~4주차 예측 로직 적용 (1,2주차 평균 베이스 + 가중치)
             st.markdown("#### ⚙️ 2. 잔여 주차 예측 가중치 설정")
             pred_weight = st.slider("📈 3~4주차 예측 가중치 (1,2주차 평균 실적 대비 % 적용)", 50, 150, 100, step=5, key="tab2_weight_slider") / 100.0
             
-            # 예측값 계산 로직
+            # 예측값 계산
             pred_df["3주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
             pred_df["4주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
             
-            # 월 총 누적 가마감 산출
             pred_df["월 가마감(총합)"] = pred_df["1주차(실적)"] + pred_df["2주차(실적)"] + pred_df["3주차(예측)"] + pred_df["4주차(예측)"]
             pred_df["계획대비 달성률(%)"] = round((pred_df["월 가마감(총합)"] / pred_df["26년 월간계획"]) * 100, 1)
 
-            # 3. 데이터 테이블 표시
             st.markdown("#### 📋 월 가마감 통합 명세서 (예측 반영)")
             def highlight_forecast(s):
-                # 예측 및 총합 컬럼에 파스텔톤 배경색 적용
                 return ['background-color: #f0f8ff' if '예측' in col or '총합' in col else '' for col in s.index]
                 
             st.dataframe(pred_df.style.apply(highlight_forecast, axis=1), use_container_width=True, height=500)
 
-            # 4. 핵심 지표 추이 그래프 시각화
             st.markdown("---")
             st.markdown("#### 📉 주차별 추이 및 월말 예측 시각화")
             
             chart_cols = ["1주차(실적)", "2주차(실적)", "3주차(예측)", "4주차(예측)"]
             
             try:
-                # 차트용 데이터 추출 (매출액, 매출원가, 영업이익)
+                # 차트용 데이터 추출 (영업이익이 없으면 자동으로 매출이익으로 대체하는 예외 처리 완벽 적용)
                 rev_row = pred_df[pred_df["구분(백만원)"] == "매출액"][chart_cols].iloc[0]
-                profit_row = pred_df[pred_df["구분(백만원)"] == "영업이익"][chart_cols].iloc[0]
                 cost_row = pred_df[pred_df["구분(백만원)"] == "매출원가"][chart_cols].iloc[0]
+                
+                # '영업이익' 항목이 존재하면 사용하고, 없으면 '매출이익'을 사용
+                if "영업이익" in pred_df["구분(백만원)"].values:
+                    profit_row = pred_df[pred_df["구분(백만원)"] == "영업이익"][chart_cols].iloc[0]
+                    profit_label = "영업이익"
+                elif "매출이익" in pred_df["구분(백만원)"].values:
+                    profit_row = pred_df[pred_df["구분(백만원)"] == "매출이익"][chart_cols].iloc[0]
+                    profit_label = "매출이익"
+                else:
+                    # 둘 다 없으면 기본값 처리
+                    profit_row = pd.Series([0,0,0,0], index=chart_cols)
+                    profit_label = "이익데이터없음"
                 
                 trend_data = pd.DataFrame({
                     "주차": chart_cols,
                     "매출액(백만원)": rev_row.values,
                     "매출원가(백만원)": cost_row.values,
-                    "영업이익(백만원)": profit_row.values
+                    "이익(백만원)": profit_row.values
                 })
 
                 col_chart1, col_chart2 = st.columns(2)
                 
                 with col_chart1:
-                    # 혼합 차트 (Bar: 매출/원가, Line: 이익)
                     fig_trend = go.Figure()
                     
-                    # 실적(진한색) vs 예측(옅은색) 시각적 구분
                     colors_rev = ['#1f77b4', '#1f77b4', '#aec7e8', '#aec7e8']
                     colors_cost = ['#ff7f0e', '#ff7f0e', '#ffbb78', '#ffbb78']
 
                     fig_trend.add_trace(go.Bar(x=trend_data["주차"], y=trend_data["매출액(백만원)"], name="매출액", marker_color=colors_rev))
                     fig_trend.add_trace(go.Bar(x=trend_data["주차"], y=trend_data["매출원가(백만원)"], name="매출원가", marker_color=colors_cost))
-                    fig_trend.add_trace(go.Scatter(x=trend_data["주차"], y=trend_data["영업이익(백만원)"], name="영업이익", mode='lines+markers+text', 
-                                                   text=trend_data["영업이익(백만원)"], textposition="top center",
+                    fig_trend.add_trace(go.Scatter(x=trend_data["주차"], y=trend_data["이익(백만원)"], name=profit_label, mode='lines+markers+text', 
+                                                   text=trend_data["이익(백만원)"], textposition="top center",
                                                    line=dict(color='red', width=3)))
                     
-                    fig_trend.update_layout(title="주차별 매출/원가 및 영업이익 추이 (진한색: 실적, 옅은색: 예측)", barmode='group')
+                    fig_trend.update_layout(title=f"주차별 매출/원가 및 {profit_label} 추이 (진한색: 실적, 옅은색: 예측)", barmode='group')
                     st.plotly_chart(fig_trend, use_container_width=True)
 
                 with col_chart2:
-                    # 직접비 구성 비율 파이 차트 (월 통합 기준)
-                    direct_costs = pred_df[pred_df["구분(백만원)"].str.contains("- 도급비|- 집하|- 배송|- 임차료|- 수선비|- 감가상각비|- 소모품비|- 기타")]
-                    fig_pie = px.pie(direct_costs, values='월 가마감(총합)', names='구분(백만원)', hole=0.4, title="월 가마감 기준 직접비 구성비 예측")
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    # 직접비 파이차트 추출 정교화 (na=False 처리 추가로 에러 방지)
+                    direct_costs = pred_df[pred_df["구분(백만원)"].str.contains("- 도급비|- 집하|- 배송|- 임차료|- 수선비|- 감가상각비|- 소모품비|- 기타", na=False, regex=True)]
+                    if not direct_costs.empty:
+                        fig_pie = px.pie(direct_costs, values='월 가마감(총합)', names='구분(백만원)', hole=0.4, title="월 가마감 기준 직접비 구성비 예측")
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.info("직접비 상세 내역이 없어 구성비 차트를 그릴 수 없습니다.")
                     
-            except IndexError:
-                st.warning("⚠️ 업로드된 데이터 형태가 예상과 다릅니다. '구분(백만원)' 컬럼에 '매출액', '매출원가', '영업이익' 항목이 존재하는지 확인해주세요.")
+            except Exception as e:
+                st.warning(f"⚠️ 시각화 처리 중 문제가 발생했습니다: {e}")
                 
         except Exception as e:
             st.error(f"데이터를 처리하는 중 오류가 발생했습니다: {e}")
