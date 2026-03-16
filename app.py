@@ -620,11 +620,11 @@ with tab2:
         st.info("💡 우측 상단의 [🚀 시연용 가마감 예측 데이터 자동 로드] 버튼을 누르거나 CSV 파일을 업로드해주세요.")
 
 # -------------------------------------------------------------------
-# [TAB 3] 킹받는 동네 친구 '심심이' 챗봇 (새로 추가된 로직)
+# [TAB 3] 업무 친구 '로지몽' 챗봇
 # -------------------------------------------------------------------
 with tab3:
-    st.markdown("### 🤖 킹받는 동네 친구 '심심이'")
-    st.info("💡 앞서 기획한 츤데레 성격의 심심이입니다. 편하게 반말로 아무 말이나 걸어보세요! (데이터 분석하다가 스트레스 받을 때 놀러오세요)")
+    st.markdown("### 🤖 업무 친구 '로지몽'")
+    st.info("💡 일할 때, 모르는 것이 있거나 도움이 필요하면 언제든지 불러주세요 ! ")
 
     # 1. 이전 대화 기록 화면에 출력 (시스템 프롬프트는 숨김)
     for message in st.session_state.chat_messages:
@@ -633,7 +633,7 @@ with tab3:
                 st.markdown(message["content"])
 
     # 2. 사용자 입력창
-    if prompt := st.chat_input("심심이한테 할 말을 입력해봐..."):
+    if prompt := st.chat_input("로지몽에게 할 말을 입력해봐..."):
         # 사용자가 입력한 메시지를 화면에 출력하고 기록에 저장
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -665,5 +665,5 @@ with tab3:
                 full_response = "아파서 대답 못해. (에러 발생)"
                 message_placeholder.markdown(full_response)
 
-        # 심심이의 답변을 대화 기록에 저장
+        # 로지몽의 답변을 대화 기록에 저장
         st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
