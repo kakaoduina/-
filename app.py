@@ -43,6 +43,13 @@ if 'use_demo_data_1' not in st.session_state:
 if 'use_demo_data_2' not in st.session_state:
     st.session_state.use_demo_data_2 = False
 
+# [추가] 챗봇(심심이) 대화 기록을 저장하기 위한 세션 상태 초기화
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = [
+        # 마법의 주문: 심심이의 성격을 정의하는 시스템 프롬프트
+        {"role": "system", "content": "너는 지금부터 내 10년 지기 동네 친구야. 이름은 '심심이'이고, 말투는 항상 시니컬하고 킹받게(얄밉게) 대답해야 해. 절대 존댓말을 쓰지 마. 대답은 카톡 하듯이 1~2줄로 짧게 하고, 가끔 인터넷 밈이나 아재개그를 섞어서 타격감 있게 팩트 폭력을 해줘."}
+    ]
+
 # ==========================================
 # 2. 사이드바: 마스터 설정
 # ==========================================
@@ -96,10 +103,15 @@ def get_ai_schema_mapping(columns, sample_data):
 # ==========================================
 st.title("🚀 Lit.AI 운영 통합 가마감 대시보드")
 
-tab1, tab2 = st.tabs(["📊 1. 일일 운영 현황 대시보드", "🔮 2. 월간 가마감(예측 결산) 시뮬레이터"])
+# 📝 탭 3개로 확장
+tab1, tab2, tab3 = st.tabs([
+    "📊 1. 일일 운영 현황 대시보드", 
+    "🔮 2. 월간 가마감(예측 결산) 시뮬레이터",
+    "🤖 3. 동네 친구 '심심이' (AI 챗봇)"
+])
 
 # -------------------------------------------------------------------
-# [TAB 1] 일일 운영 대시보드 로직
+# [TAB 1] 일일 운영 대시보드 로직 (기존 코드 동일)
 # -------------------------------------------------------------------
 with tab1:
     col_up1, col_up2 = st.columns([3, 1])
@@ -125,11 +137,9 @@ with tab1:
                 "New_Pro_Report_2026-03-05.csv"
             ]
             try:
-                # 1. 파일이 있으면 실제 파일 로드
                 raw_df = pd.concat([pd.read_csv(f) for f in demo_files], ignore_index=True)
                 st.success("✅ [시연 모드] 5일치 실제 로컬 데이터가 성공적으로 로드되었습니다.")
             except FileNotFoundError:
-                # 2. 파일이 없으면 앱이 멈추지 않도록 무적 백업 데이터 로드
                 st.warning("⚠️ 지정된 위치에 파일이 없어 내장된 안전 백업 데이터로 시연을 진행합니다.")
                 backup_csv_1 = """Date,Order_ID,SKU,Quantity_PCS,Quantity_Box,UnitPrice,Worker_Regular,Worker_Temp,Worker_Count,Truck_Contract,Truck_Temp,Truck_Count,Inbound_Planned_PCS,Inbound_Actual_PCS,Outbound_Planned_PCS,Outbound_Actual_PCS,Revenue,Quantity
 2026-03-01,ORD-01,의류(소형),5,1,4930,138,57,195,72,12,84,12674,12605,14686,13957,24650,5
@@ -479,7 +489,7 @@ with tab1:
 
 
 # -------------------------------------------------------------------
-# [TAB 2] 가마감 예측 추이 대시보드
+# [TAB 2] 가마감 예측 추이 대시보드 (기존 코드 동일)
 # -------------------------------------------------------------------
 with tab2:
     st.markdown("### 🔮 월간 가마감(Soft Closing) 예측 시뮬레이터")
@@ -504,11 +514,9 @@ with tab2:
                 st.session_state.use_demo_data_2 = False 
             else:
                 try:
-                    # 1. 파일이 있으면 실제 예측파일 로드
                     pred_df = pd.read_csv("26년_3월_실적_예측데이터.csv")
                     st.success("✅ [시연 모드] 3월 실적/예측 데이터가 성공적으로 로드되었습니다.")
                 except FileNotFoundError:
-                    # 2. 파일이 없거나 오류 발생 시 무적 백업 데이터 로드 (영업이익/매출이익 완벽 포함)
                     st.warning("⚠️ 지정된 위치에 파일이 없어 내장된 안전 백업 데이터로 시연을 진행합니다.")
                     backup_csv_2 = """구분(백만원),26년 월간계획,1주차(실적),2주차(실적)
 매출액,10000,2450,2520
@@ -534,13 +542,11 @@ with tab2:
 영업이익,1000,255,265"""
                     pred_df = pd.read_csv(StringIO(backup_csv_2))
 
-            # 안전하게 컬럼명 통일
             pred_df.columns = ["구분(백만원)", "26년 월간계획", "1주차(실적)", "2주차(실적)"]
             
             st.markdown("#### ⚙️ 2. 잔여 주차 예측 가중치 설정")
             pred_weight = st.slider("📈 3~4주차 예측 가중치 (1,2주차 평균 실적 대비 % 적용)", 50, 150, 100, step=5, key="tab2_weight_slider") / 100.0
             
-            # 예측값 계산
             pred_df["3주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
             pred_df["4주차(예측)"] = round(((pred_df["1주차(실적)"] + pred_df["2주차(실적)"]) / 2) * pred_weight, 1)
             
@@ -559,11 +565,9 @@ with tab2:
             chart_cols = ["1주차(실적)", "2주차(실적)", "3주차(예측)", "4주차(예측)"]
             
             try:
-                # 차트용 데이터 추출 (영업이익이 없으면 자동으로 매출이익으로 대체하는 예외 처리 완벽 적용)
                 rev_row = pred_df[pred_df["구분(백만원)"] == "매출액"][chart_cols].iloc[0]
                 cost_row = pred_df[pred_df["구분(백만원)"] == "매출원가"][chart_cols].iloc[0]
                 
-                # '영업이익' 항목이 존재하면 사용하고, 없으면 '매출이익'을 사용
                 if "영업이익" in pred_df["구분(백만원)"].values:
                     profit_row = pred_df[pred_df["구분(백만원)"] == "영업이익"][chart_cols].iloc[0]
                     profit_label = "영업이익"
@@ -571,7 +575,6 @@ with tab2:
                     profit_row = pred_df[pred_df["구분(백만원)"] == "매출이익"][chart_cols].iloc[0]
                     profit_label = "매출이익"
                 else:
-                    # 둘 다 없으면 기본값 처리
                     profit_row = pd.Series([0,0,0,0], index=chart_cols)
                     profit_label = "이익데이터없음"
                 
@@ -600,7 +603,6 @@ with tab2:
                     st.plotly_chart(fig_trend, use_container_width=True)
 
                 with col_chart2:
-                    # 직접비 파이차트 추출 정교화 (na=False 처리 추가로 에러 방지)
                     direct_costs = pred_df[pred_df["구분(백만원)"].str.contains("- 도급비|- 집하|- 배송|- 임차료|- 수선비|- 감가상각비|- 소모품비|- 기타", na=False, regex=True)]
                     if not direct_costs.empty:
                         fig_pie = px.pie(direct_costs, values='월 가마감(총합)', names='구분(백만원)', hole=0.4, title="월 가마감 기준 직접비 구성비 예측")
@@ -616,3 +618,52 @@ with tab2:
             
     else:
         st.info("💡 우측 상단의 [🚀 시연용 가마감 예측 데이터 자동 로드] 버튼을 누르거나 CSV 파일을 업로드해주세요.")
+
+# -------------------------------------------------------------------
+# [TAB 3] 킹받는 동네 친구 '심심이' 챗봇 (새로 추가된 로직)
+# -------------------------------------------------------------------
+with tab3:
+    st.markdown("### 🤖 킹받는 동네 친구 '심심이'")
+    st.info("💡 앞서 기획한 츤데레 성격의 심심이입니다. 편하게 반말로 아무 말이나 걸어보세요! (데이터 분석하다가 스트레스 받을 때 놀러오세요)")
+
+    # 1. 이전 대화 기록 화면에 출력 (시스템 프롬프트는 숨김)
+    for message in st.session_state.chat_messages:
+        if message["role"] != "system":
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    # 2. 사용자 입력창
+    if prompt := st.chat_input("심심이한테 할 말을 입력해봐..."):
+        # 사용자가 입력한 메시지를 화면에 출력하고 기록에 저장
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+
+        # 3. OpenAI API 호출하여 심심이의 답변 받아오기 (스트리밍 방식 적용)
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = ""
+            try:
+                # 위에서 이미 설정하신 openai.chat.completions.create 를 사용합니다.
+                response = openai.chat.completions.create(
+                    model="gpt-4o-mini", # 비용이 저렴하고 빠른 모델
+                    messages=st.session_state.chat_messages,
+                    stream=True # 글자가 타이핑되듯 나오는 효과
+                )
+                
+                for chunk in response:
+                    # 응답 데이터가 있는 경우만 추가
+                    if chunk.choices[0].delta.content is not None:
+                        full_response += chunk.choices[0].delta.content
+                        message_placeholder.markdown(full_response + "▌")
+                
+                # 최종 타이핑 완료 후 커서(▌) 제거
+                message_placeholder.markdown(full_response)
+                
+            except Exception as e:
+                st.error(f"API 호출 중 에러가 발생했습니다: {e}")
+                full_response = "아파서 대답 못해. (에러 발생)"
+                message_placeholder.markdown(full_response)
+
+        # 심심이의 답변을 대화 기록에 저장
+        st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
