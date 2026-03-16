@@ -9,6 +9,7 @@ import numpy as np
 import time
 import json
 import os
+import base64  # [추가] 이미지 처리를 위한 모듈
 
 # ==========================================
 # 1. 보안 및 환경 설정
@@ -43,7 +44,11 @@ if 'use_demo_data_1' not in st.session_state:
 if 'use_demo_data_2' not in st.session_state:
     st.session_state.use_demo_data_2 = False
 
-# [추가] 챗봇(심심이) 대화 기록을 저장하기 위한 세션 상태 초기화
+# [추가] 파일 업로더 초기화를 위한 Key 상태값
+if 'chat_uploader_key' not in st.session_state:
+    st.session_state.chat_uploader_key = 0
+
+# 챗봇(심심이) 대화 기록을 저장하기 위한 세션 상태 초기화
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = [
         # 마법의 주문: 심심이의 성격을 정의하는 시스템 프롬프트
@@ -111,7 +116,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # -------------------------------------------------------------------
-# [TAB 1] 일일 운영 대시보드 로직 (기존 코드 동일)
+# [TAB 1] 일일 운영 대시보드 로직 
 # -------------------------------------------------------------------
 with tab1:
     col_up1, col_up2 = st.columns([3, 1])
@@ -489,7 +494,7 @@ with tab1:
 
 
 # -------------------------------------------------------------------
-# [TAB 2] 가마감 예측 추이 대시보드 (기존 코드 동일)
+# [TAB 2] 가마감 예측 추이 대시보드 
 # -------------------------------------------------------------------
 with tab2:
     st.markdown("### 🔮 월간 가마감(Soft Closing) 예측 시뮬레이터")
@@ -620,44 +625,102 @@ with tab2:
         st.info("💡 우측 상단의 [🚀 시연용 가마감 예측 데이터 자동 로드] 버튼을 누르거나 CSV 파일을 업로드해주세요.")
 
 # -------------------------------------------------------------------
-# [TAB 3] 업무 친구 '로지몽' 챗봇
+# [TAB 3] 업무 친구 '로지몽' 챗봇 (이미지 및 파일 업로드 기능 추가)
 # -------------------------------------------------------------------
 with tab3:
     st.markdown("### 🤖 업무 친구 '로지몽'")
-    st.info("💡 일할 때, 모르는 것이 있거나 도움이 필요하면 언제든지 불러주세요 ! ")
+    st.info("💡 일할 때, 모르는 것이 있거나 도움이 필요하면 언제든지 불러주세요! (이미지, 텍스트, CSV 파일 업로드도 가능합니다 📎)")
 
-    # 1. 이전 대화 기록 화면에 출력 (시스템 프롬프트는 숨김)
+    # 1. 파일/이미지 업로더 (전송 후 비워지도록 동적 key 사용)
+    uploaded_chat_files = st.file_uploader(
+        "📂 로지몽에게 보낼 파일이나 사진을 올려주세요!", 
+        type=["png", "jpg", "jpeg", "csv", "txt"], 
+        accept_multiple_files=True, 
+        key=f"chat_uploader_{st.session_state.chat_uploader_key}"
+    )
+
+    # 2. 이전 대화 기록 화면에 출력 (시스템 프롬프트는 숨김)
     for message in st.session_state.chat_messages:
         if message["role"] != "system":
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                # 문자열인 경우 (기존 일반 텍스트 대화)
+                if isinstance(message["content"], str):
+                    st.markdown(message["content"])
+                # 리스트인 경우 (이미지 및 파일이 포함된 멀티모달 대화)
+                elif isinstance(message["content"], list):
+                    text_part = next((item["text"] for item in message["content"] if item["type"] == "text"), "")
+                    st.markdown(text_part)
+                    
+                    # 사용자가 보냈던 이미지 UI 상에 다시 출력
+                    for item in message["content"]:
+                        if item["type"] == "image_url":
+                            st.image(item["image_url"]["url"], width=250)
 
-    # 2. 사용자 입력창
+    # 3. 사용자 입력창
     if prompt := st.chat_input("로지몽에게 할 말을 입력해봐..."):
-        # 사용자가 입력한 메시지를 화면에 출력하고 기록에 저장
+        
+        # 화면에 즉시 출력
         with st.chat_message("user"):
             st.markdown(prompt)
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+            if uploaded_chat_files:
+                for file in uploaded_chat_files:
+                    if file.name.split('.')[-1].lower() in ['png', 'jpg', 'jpeg']:
+                        st.image(file, width=250)
+                    else:
+                        st.caption(f"📎 첨부됨: {file.name}")
 
-        # 3. OpenAI API 호출하여 심심이의 답변 받아오기 (스트리밍 방식 적용)
+        # 4. OpenAI API 전송용 Content 구성 (업로드된 파일 유무에 따라 포맷 분기)
+        if uploaded_chat_files:
+            user_content = [{"type": "text", "text": prompt}]
+            
+            for file in uploaded_chat_files:
+                file.seek(0)
+                file_ext = file.name.split('.')[-1].lower()
+                
+                # 이미지 파일일 경우 -> Base64 인코딩하여 Vision 형태 추가
+                if file_ext in ['png', 'jpg', 'jpeg']:
+                    base64_image = base64.b64encode(file.read()).decode('utf-8')
+                    mime_type = "image/jpeg" if file_ext == "jpg" else f"image/{file_ext}"
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
+                    })
+                # 문서 파일(CSV/TXT)일 경우 -> 텍스트를 파싱하여 프롬프트에 병합
+                elif file_ext in ['csv', 'txt']:
+                    try:
+                        file_content = file.read().decode('utf-8')
+                    except UnicodeDecodeError:
+                        # 한글 윈도우 환경 CSV 대응
+                        file.seek(0)
+                        file_content = file.read().decode('euc-kr', errors='ignore')
+                        
+                    # 프롬프트 텍스트에 파일 내용 이어 붙이기
+                    user_content[0]["text"] += f"\n\n[첨부파일: {file.name}]\n{file_content}\n"
+            
+            # 파일 처리가 끝났으므로 파일 업로더 키를 업데이트 (다음 렌더링 시 비워짐)
+            st.session_state.chat_uploader_key += 1
+        else:
+            # 첨부파일이 없으면 일반 스트링으로 전송
+            user_content = prompt
+
+        st.session_state.chat_messages.append({"role": "user", "content": user_content})
+
+        # 5. OpenAI API 호출하여 심심이의 답변 받아오기 (스트리밍 방식 적용)
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
             full_response = ""
             try:
-                # 위에서 이미 설정하신 openai.chat.completions.create 를 사용합니다.
                 response = openai.chat.completions.create(
-                    model="gpt-4o-mini", # 비용이 저렴하고 빠른 모델
+                    model="gpt-4o-mini", # 멀티모달(Vision) 지원됨
                     messages=st.session_state.chat_messages,
-                    stream=True # 글자가 타이핑되듯 나오는 효과
+                    stream=True
                 )
                 
                 for chunk in response:
-                    # 응답 데이터가 있는 경우만 추가
                     if chunk.choices[0].delta.content is not None:
                         full_response += chunk.choices[0].delta.content
                         message_placeholder.markdown(full_response + "▌")
                 
-                # 최종 타이핑 완료 후 커서(▌) 제거
                 message_placeholder.markdown(full_response)
                 
             except Exception as e:
@@ -667,3 +730,6 @@ with tab3:
 
         # 로지몽의 답변을 대화 기록에 저장
         st.session_state.chat_messages.append({"role": "assistant", "content": full_response})
+        
+        # 파일 업로더 UI를 즉시 비우기 위해 Rerun 실행
+        st.rerun()
